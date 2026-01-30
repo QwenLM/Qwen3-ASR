@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  qwen3-asr:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: qwen3-asr:latest
+    container_name: qwen3-asr-server
+    
+    # GPU support
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    
+    # Port mapping
+    ports:
+      - "${PORT:-8000}:8000"
+    
+    # Environment variables
+    environment:
+      - MODEL_NAME=${MODEL_NAME:-Qwen/Qwen3-ASR-1.7B}
+      - DEVICE=cuda:0
+      - DTYPE=bfloat16
+      - MAX_BATCH_SIZE=32
+      - MAX_NEW_TOKENS=1024
+      - HOST=0.0.0.0
+      - PORT=8000
+      - PRELOAD_MODEL=true
+    
+    # Mount HuggingFace cache for model persistence
+    volumes:
+      - ${HF_CACHE:-~/.cache/huggingface}:/app/models
+    
+    # Restart policy
+    restart: unless-stopped
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 30s
+      retries: 3
+      start_period: 120s
+    
+    # Shared memory for PyTorch
+    shm_size: '4gb'
+
+  # Optional: Nginx reverse proxy
+  # nginx:
+  #   image: nginx:alpine
+  #   ports:
+  #     - "80:80"
+  #   volumes:
+  #     - ./nginx.conf:/etc/nginx/nginx.conf:ro
+  #   depends_on:
+  #     - qwen3-asr

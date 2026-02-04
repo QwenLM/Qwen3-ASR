@@ -1,0 +1,26 @@
+分片降低内存使用：
+  原始 safetensors 文件有 4G，导致每次加载时都将使用 4G 以上内存，机器内存只有 8G 的朋友，会疯狂使用虚拟内存，重新分片可以解决这个问题。
+
+  	1. 分片脚本
+    	import os
+    	
+    	# 原始方式加载模型
+    	import torch
+    	from qwen_asr import Qwen3ASRModel
+    	model = Qwen3ASRModel.from_pretrained(
+    	    r"E:\Workspace\Python\Asr\cache\Qwen3-ASR-1.7B",   # 修改为官方或自己训练后的模型路径
+    	    dtype=torch.bfloat16,
+    	    device_map="cuda:0",
+    	    max_inference_batch_size=-1,            # 不限制批处理大小
+    	    max_new_tokens=10000000000        # 原始值很小
+    	)
+    	
+    	print("开始分片")
+    	model.model.save_pretrained(r"E:\Workspace\Python\Asr\cache\out", max_shard_size="1GB")
+    	print("分片保存成功")
+    	
+    2. 手动合并仓库
+    		删除官方仓库 model.safetensors.index.json、safetensors 文件
+    		只复制分片后out下的 model.safetensors.index.json、safetensors 文件到官方仓库，其他不要
+    		
+    3. 按Qwen3 asr官方加载方式继续使用即可

@@ -47,10 +47,18 @@ from .utils import (
 )
 
 try:
-    from qwen_asr.core.vllm_backend import Qwen3ASRForConditionalGeneration
     from vllm import ModelRegistry
-    ModelRegistry.register_model("Qwen3ASRForConditionalGeneration", Qwen3ASRForConditionalGeneration)
-except:
+
+    try:
+        from vllm.transformers_utils.config import _CONFIG_REGISTRY
+        _CONFIG_REGISTRY["qwen3_asr"] = Qwen3ASRConfig
+    except (ImportError, AttributeError):
+        pass
+
+    model_class_path = "qwen_asr.core.vllm_backend.qwen3_asr:Qwen3ASRForConditionalGeneration"
+    ModelRegistry.register_model("qwen3_asr", model_class_path)
+    ModelRegistry.register_model("Qwen3ASRForConditionalGeneration", model_class_path)
+except Exception as e:
     pass
 
 

@@ -198,7 +198,6 @@ class Qwen3ASRAudioAttention(nn.Module):
             num_heads=self.num_local_heads,
             head_size=self.head_dim,
             scale=self.scaling,
-            multimodal_config=multimodal_config,
         )
 
     def forward(
@@ -359,15 +358,9 @@ class Qwen3ASRAudioEncoder(nn.Module):
         self.proj2 = nn.Linear(config.d_model, config.output_dim)
 
         # Get attention backend
-        attn_backend_override = (
-            multimodal_config.mm_encoder_attn_backend
-            if multimodal_config is not None
-            else None
-        )
         self.attn_backend = get_vit_attn_backend(
             head_size=config.d_model // config.encoder_attention_heads,
             dtype=torch.get_default_dtype(),
-            attn_backend_override=attn_backend_override,
         )
 
     def compute_attn_mask_seqlen(self, cu_seqlens: torch.Tensor) -> torch.Tensor | None:
@@ -553,6 +546,13 @@ class Qwen3ASRProcessingInfo(BaseProcessingInfo):
     def get_supported_mm_limits(self) -> Mapping[str, int | None]:
         return {"audio": None}
 
+    def build_data_parser(self) -> MultiModalDataParser:
+        """Build data parser for vllm >= 0.15.2"""
+        feature_extractor = self.get_feature_extractor()
+        return Qwen3ASRMultiModalDataParser(
+            target_sr=feature_extractor.sampling_rate,
+        )
+
 
 class Qwen3ASRDummyInputsBuilder(BaseDummyInputsBuilder[Qwen3ASRProcessingInfo]):
     def get_dummy_text(self, mm_counts: Mapping[str, int]) -> str:
@@ -622,12 +622,6 @@ class Qwen3ASRMultiModalDataParser(MultiModalDataParser):
 class Qwen3ASRMultiModalProcessor(
     Qwen3OmniMoeThinkerMultiModalProcessor,
 ):
-    def _get_data_parser(self) -> MultiModalDataParser:
-        feature_extractor = self.info.get_feature_extractor()
-        return Qwen3ASRMultiModalDataParser(
-            target_sr=feature_extractor.sampling_rate,
-        )
-
     def _get_mm_fields_config(
         self,
         hf_inputs: BatchFeature,

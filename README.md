@@ -489,7 +489,7 @@ response = client.chat.completions.create(
                 {
                     "type": "audio_url",
                     "audio_url": {
-                        {"url": "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen3-ASR-Repo/asr_en.wav"}
+                        "url": "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen3-ASR-Repo/asr_en.wav"
                     }
                 }
             ]

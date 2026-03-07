@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Union
 import regex
 import nagisa
+import numpy as np
 import torch
 import torchaudio
 
@@ -541,117 +542,141 @@ class Qwen3ForcedAligner:
         if not self.campplus_model:
             return results
         
-        assert len(results) == len(texts)
-        previous_time_offset = 0
-        reorganized_audio_ndarray = []
-        reorganized_text_segments = []
-        # Extract audio segments based on aligned timestamps and punctuation-split text segments
+        audio_segments, text_segments = self._extract_audio_segments(texts, results, norm_audio, languages)
+        spk_labels = self._cluster_speakers(audio_segments)
+        return self._assign_speaker_labels(texts, results, text_segments, spk_labels)
+
+    def _extract_audio_segments(
+        self,
+        texts: List[str],
+        results: List["ForcedAlignResult"],
+        norm_audio: List,
+        languages: List[str],
+    ) -> tuple:
+        audio_segments = []
+        text_segments = []
+        fbank_min_samples = int(25 / 1000 * SAMPLE_RATE)
+        
         for text, align_result, audio_ndarray, language in zip(texts, results, norm_audio, languages):
-
-            text_segments_by_punc = regex.split(r'[\p{P}]', text)
-            offset = 0
+            segments_by_punc = [s for s in regex.split(r'[\p{P}]', text) if s]
+            char_offset = 0
             max_idx = len(align_result) - 1
-            previous_time_offset = align_result[-1].end_time + previous_time_offset
-            previous_time_start = None
-            for seg in text_segments_by_punc:
-                if not seg:
-                    continue
+            
+            for seg in segments_by_punc:
                 seg_len = len(seg)
-                start = align_result[min(offset, max_idx)].start_time if not previous_time_start else previous_time_start
-                end = align_result[min(offset + seg_len - 1, max_idx)].end_time
+                start_time = align_result[min(char_offset, max_idx)].start_time
+                end_time = align_result[min(char_offset + seg_len - 1, max_idx)].end_time
                 
-                start_sample = int(start * (SAMPLE_RATE / 1000))
-                end_sample = int(end * (SAMPLE_RATE / 1000))
+                start_sample = int(start_time * (SAMPLE_RATE / 1000))
+                end_sample = int(end_time * (SAMPLE_RATE / 1000))
                 
-                # kaldi.fbank uses 25ms window by default, skip segments shorter than that
-                fbank_window_samples = int(25 / 1000 * SAMPLE_RATE)
-                if end_sample < start_sample + fbank_window_samples:
-                    previous_time_start = start
-                    offset += seg_len
-                    continue
+                if end_sample - start_sample >= fbank_min_samples:
+                    audio_segments.append(audio_ndarray[start_sample:end_sample])
+                    text_segments.append({
+                        'text': seg,
+                        'start': start_time,
+                        'end': end_time,
+                        'language': language,
+                        'audio_idx': len(audio_segments) - 1,
+                    })
                 
-                
-                audio_tensor = audio_ndarray[start_sample:end_sample]
-                reorganized_audio_ndarray.append(audio_tensor)
-                reorganized_text_segments.append((seg, start, end, language))
-                
-                offset += seg_len
-                previous_time_start = None
+                char_offset += seg_len
+        
+        return audio_segments, text_segments
 
-        aligner_input_texts = []
-        for t, _, _, lang in reorganized_text_segments:
-            word_list, aligner_input_text = self.aligner_processor.encode_timestamp(t, lang)
-            word_lists.append(word_list)
-            aligner_input_texts.append(aligner_input_text)
+    def _extract_embedding(self, wav: np.ndarray) -> torch.Tensor:
+        speech = self.load_wav(wav, target_sr=SAMPLE_RATE)
+        feat = kaldi.fbank(
+            speech,
+            num_mel_bins=80,
+            dither=0,
+            sample_frequency=SAMPLE_RATE,
+        )
+        feat = feat - feat.mean(dim=0, keepdim=True)
+        embedding = self.campplus_session.run(
+            None,
+            {self.campplus_session.get_inputs()[0].name: feat.unsqueeze(dim=0).cpu().numpy()},
+        )[0].flatten()
+        return torch.from_numpy(embedding)
+
+    def _cluster_speakers(self, audio_segments: List) -> np.ndarray:
+        if not audio_segments:
+            return np.array([], dtype=int)
         
-        # Extract speaker embeddings from audio segments and cluster them to assign speaker labels.
-        embeddings = []
-        valid_segment_indices = []
-        for idx, wav in enumerate(reorganized_audio_ndarray):
-            speech = self.load_wav(wav, target_sr=SAMPLE_RATE)
-            feat = kaldi.fbank(speech,
-                           num_mel_bins=80,
-                           dither=0,
-                           sample_frequency=SAMPLE_RATE)
-            feat = feat - feat.mean(dim=0, keepdim=True)
-            embedding = self.campplus_session.run(None, {self.campplus_session.get_inputs()[0].name: feat.unsqueeze(dim=0).cpu().numpy()})[0].flatten()
-            embeddings.append(torch.from_numpy(embedding))
-            valid_segment_indices.append(idx)
-        
-        if len(embeddings) > 0:
-            embeddings = torch.stack(embeddings)
-            spk_labels = self.cb_model(embeddings)
-        else:
-            spk_labels = np.array([], dtype=int)
-        
+        embeddings = torch.stack([self._extract_embedding(wav) for wav in audio_segments])
+        return self.cb_model(embeddings)
+
+    def _assign_speaker_labels(
+        self,
+        texts: List[str],
+        results: List["ForcedAlignResult"],
+        text_segments: List[dict],
+        spk_labels: np.ndarray,
+    ) -> List["ForcedAlignResult"]:
         segment_idx = 0
-        current_offset = 0
+        time_offset = 0
         final_results = []
-        for text, align_result in zip(texts, results):
+        
+        for align_result in results:
             new_items = []
             for item in align_result:
-                while segment_idx < len(reorganized_text_segments):
-                    seg, seg_start, seg_end, _ = reorganized_text_segments[segment_idx]
-                    adjusted_start = seg_start - current_offset
-                    adjusted_end = seg_end - current_offset
-                    if item.start_time >= adjusted_start and item.end_time <= adjusted_end:
-                        if segment_idx in valid_segment_indices:
-                            label_idx = valid_segment_indices.index(segment_idx)
-                            speaker = int(spk_labels[label_idx])
-                        else:
-                            speaker = None
-                        new_item = ForcedAlignItem(
-                            text=item.text,
-                            start_time=item.start_time,
-                            end_time=item.end_time,
-                            speaker=speaker
-                        )
-                        new_items.append(new_item)
-                        break
-                    elif item.end_time > adjusted_end:
-                        segment_idx += 1
-                    else:
-                        new_item = ForcedAlignItem(
-                            text=item.text,
-                            start_time=item.start_time,
-                            end_time=item.end_time,
-                            speaker=None
-                        )
-                        new_items.append(new_item)
-                        break
-                else:
-                    new_item = ForcedAlignItem(
-                        text=item.text,
-                        start_time=item.start_time,
-                        end_time=item.end_time,
-                        speaker=None
-                    )
-                    new_items.append(new_item)
+                speaker = self._find_speaker_for_item(
+                    item, text_segments, spk_labels, segment_idx, time_offset
+                )
+                new_items.append(ForcedAlignItem(
+                    text=item.text,
+                    start_time=item.start_time,
+                    end_time=item.end_time,
+                    speaker=speaker,
+                ))
+                segment_idx, _ = self._advance_segment(
+                    item, text_segments, segment_idx, time_offset
+                )
+            
             if align_result:
-                current_offset += align_result[-1].end_time
+                time_offset += align_result[-1].end_time
             final_results.append(ForcedAlignResult(items=new_items))
         
         return final_results
+
+    def _find_speaker_for_item(
+        self,
+        item: "ForcedAlignItem",
+        text_segments: List[dict],
+        spk_labels: np.ndarray,
+        segment_idx: int,
+        time_offset: int,
+    ) -> Optional[int]:
+        while segment_idx < len(text_segments):
+            seg = text_segments[segment_idx]
+            seg_start = seg['start'] - time_offset
+            seg_end = seg['end'] - time_offset
+            
+            if item.start_time >= seg_start and item.end_time <= seg_end:
+                audio_idx = seg['audio_idx']
+                return int(spk_labels[audio_idx]) if audio_idx < len(spk_labels) else None
+            elif item.end_time > seg_end:
+                segment_idx += 1
+            else:
+                break
+        return None
+
+    def _advance_segment(
+        self,
+        item: "ForcedAlignItem",
+        text_segments: List[dict],
+        segment_idx: int,
+        time_offset: int,
+    ) -> tuple:
+        while segment_idx < len(text_segments):
+            seg = text_segments[segment_idx]
+            seg_end = seg['end'] - time_offset
+            
+            if item.end_time > seg_end:
+                segment_idx += 1
+            else:
+                break
+        return segment_idx, time_offset
     
     def get_supported_languages(self) -> Optional[List[str]]:
         """

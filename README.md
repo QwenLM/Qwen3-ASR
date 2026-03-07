@@ -7,7 +7,7 @@
 <p>
 
 <p align="center">
-&nbsp&nbsp🤗 <a href="https://huggingface.co/collections/Qwen/qwen3-asr">Hugging Face</a>&nbsp&nbsp | &nbsp&nbsp🤖 <a href="https://modelscope.cn/collections/Qwen/Qwen3-ASR">ModelScope</a>&nbsp&nbsp | &nbsp&nbsp📑 <a href="https://qwen.ai/blog?id=qwen3asr">Blog</a>&nbsp&nbsp | &nbsp&nbsp📑 <a href="https://arxiv.org/abs/2601.21337">Paper</a>&nbsp&nbsp
+&nbsp&nbsp🤗 <a href="https://huggingface.co/collections/Qwen/qwen3-asr">Hugging Face</a>&nbsp&nbsp | &nbsp&nbsp🤖 <a href="https://modelscope.cn/collections/Qwen/Qwen3-ASR">ModelScope</a>&nbsp&nbsp | &nbsp&nbsp📑 <a href="https://qwen.ai/blog?id=qwen3asr">Blog</a>&nbsp&nbsp | &nbsp&nbsp📑 <a href="https://github.com/QwenLM/Qwen3-ASR/blob/main/assets/Qwen3_ASR.pdf">Paper</a>&nbsp&nbsp
 <br>
 🖥️ <a href="https://huggingface.co/spaces/Qwen/Qwen3-ASR">Hugging Face Demo</a>&nbsp&nbsp | &nbsp&nbsp 🖥️ <a href="https://modelscope.cn/studios/Qwen/Qwen3-ASR">ModelScope Demo</a>&nbsp&nbsp | &nbsp&nbsp💬 <a href="https://github.com/QwenLM/Qwen/blob/main/assets/wechat.png">WeChat (微信)</a>&nbsp&nbsp | &nbsp&nbsp🫨 <a href="https://discord.gg/CV4E9rpNSD">Discord</a>&nbsp&nbsp | &nbsp&nbsp📑 <a href="https://help.aliyun.com/zh/model-studio/qwen-speech-recognition">API</a>
 
@@ -41,7 +41,7 @@ We release **Qwen3-ASR**, a family that includes two powerful all-in-one speech 
 - [Fine Tuning](#fine-tuning)
 - [Docker](#docker)
 - [Evaluation](#evaluation)
-- [Citation](#citation)
+<!-- - [Citation](#citation) -->
 
 
 ## Overview
@@ -1420,18 +1420,18 @@ During evaluation, we ran inference for all models with `dtype=torch.bfloat16` a
 </details>
 
 
-## Citation
+<!-- ## Citation
 
 If you find our paper and code useful in your research, please consider giving a star :star: and citation :pencil: :)
 
 ```BibTeX
 @article{Qwen3-ASR,
   title={Qwen3-ASR Technical Report},
-  author={Xian Shi, Xiong Wang, Zhifang Guo, Yongqi Wang, Pei Zhang, Xinyu Zhang, Zishan Guo, Hongkun Hao, Yu Xi, Baosong Yang, Jin Xu, Jingren Zhou, Junyang Lin},
-  journal={arXiv preprint arXiv:2601.21337},
+  author={},
+  journal={arXiv preprint arXiv:},
   year={2026}
 }
-```
+``` -->
 
 
 ## Star History

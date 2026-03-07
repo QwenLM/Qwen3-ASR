@@ -557,7 +557,8 @@ class Qwen3ASRModel:
         for it in result.items:
             items.append(type(it)(text=it.text, 
                                   start_time=round(it.start_time + offset_sec, 3), 
-                                  end_time=round(it.end_time + offset_sec, 3)))
+                                  end_time=round(it.end_time + offset_sec, 3),
+                                  speaker=getattr(it, 'speaker', None)))
         return type(result)(items=items)
 
     def _merge_align_results(self, results: List[Any]) -> Optional[Any]:
@@ -733,17 +734,8 @@ class Qwen3ASRModel:
                 prefix = ""
             else:
                 cur_ids = self.processor.tokenizer.encode(state._raw_decoded)
-                k = int(state.unfixed_token_num)
-                while True:
-                    end_idx = max(0, len(cur_ids) - k)
-                    prefix = self.processor.tokenizer.decode(cur_ids[:end_idx]) if end_idx > 0 else ""
-                    if '\ufffd' not in prefix:
-                        break
-                    else:
-                        if end_idx == 0:
-                            prefix = ""
-                            break
-                        k += 1
+                end_idx = max(1, len(cur_ids) - int(state.unfixed_token_num))
+                prefix = self.processor.tokenizer.decode(cur_ids[:end_idx])
 
             prompt = state.prompt_raw + prefix
 

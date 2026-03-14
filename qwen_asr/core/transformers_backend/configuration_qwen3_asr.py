@@ -321,6 +321,7 @@ class Qwen3ASRThinkerConfig(PretrainedConfig):
     model_type = "qwen3_asr_thinker"
 
     attribute_map = {}
+    pad_token_id = None
     sub_configs = {
         "audio_config": Qwen3ASRAudioEncoderConfig,
         "text_config": Qwen3ASRTextConfig,

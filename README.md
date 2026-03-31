@@ -515,6 +515,7 @@ audio_file = httpx.get(audio_url).content
 transcription = client.audio.transcriptions.create(
     model="Qwen/Qwen3-ASR-1.7B",
     file=audio_file,
+    prompt="交易 停滞",
 )
 
 print(transcription.text)

@@ -22,3 +22,8 @@ wheels/
 .vscode/
 venv/
 env/
+
+test_audio/
+data/
+checkpoints/
+results/

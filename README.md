@@ -22,26 +22,38 @@ We release **Qwen3-ASR**, a family that includes two powerful all-in-one speech 
 
 ## Contents <!-- omit in toc -->
 
-- [Overview](#overview)
-  - [Introduction](#introduction)
-  - [Model Architecture](#model-architecture)
-  - [Released Models Description and Download](#released-models-description-and-download)
-- [Quickstart](#quickstart)
-  - [Environment Setup](#environment-setup)
-  - [Python Package Usage](#python-package-usage)
-    - [Quick Inference](#quick-inference)
-    - [vLLM Backend](#vllm-backend)
-    - [Streaming Inference](#streaming-inference)
-    - [ForcedAligner Usage](#forcedaligner-usage)
-  - [DashScope API Usage](#dashscope-api-usage)
-- [Launch Local Web UI Demo](#launch-local-web-ui-demo)
-  - [Gradio Demo](#gradio-demo)
-  - [Streaming Demo](#streaming-demo)
-- [Deployment with vLLM](#deployment-with-vllm)
-- [Fine Tuning](#fine-tuning)
-- [Docker](#docker)
-- [Evaluation](#evaluation)
-- [Citation](#citation)
+- [Qwen3-ASR](#qwen3-asr)
+  - [News](#news)
+  - [Overview](#overview)
+    - [Introduction](#introduction)
+    - [Model Architecture](#model-architecture)
+    - [Released Models Description and Download](#released-models-description-and-download)
+  - [Quickstart](#quickstart)
+    - [Environment Setup](#environment-setup)
+    - [Python Package Usage](#python-package-usage)
+      - [Quick Inference](#quick-inference)
+      - [vLLM Backend](#vllm-backend)
+      - [Streaming Inference](#streaming-inference)
+      - [ForcedAligner Usage](#forcedaligner-usage)
+    - [DashScope API Usage](#dashscope-api-usage)
+  - [Launch Local Web UI Demo](#launch-local-web-ui-demo)
+    - [Gradio Demo](#gradio-demo)
+      - [Backend Notes](#backend-notes)
+      - [CUDA Device Notes](#cuda-device-notes)
+      - [Timestamps Notes](#timestamps-notes)
+      - [HTTPS Notes](#https-notes)
+    - [Streaming Demo](#streaming-demo)
+  - [Deployment with vLLM](#deployment-with-vllm)
+    - [Installation](#installation)
+    - [Online Serving](#online-serving)
+      - [Using OpenAI SDK](#using-openai-sdk)
+      - [Using cURL](#using-curl)
+    - [Offline Inference](#offline-inference)
+  - [Fine Tuning](#fine-tuning)
+  - [Docker](#docker)
+  - [Evaluation](#evaluation)
+  - [Citation](#citation)
+  - [Star History](#star-history)
 
 
 ## Overview
@@ -83,14 +95,14 @@ During model loading in the `qwen-asr` package or vLLM, model weights will be do
 ```bash
 # Download through ModelScope (recommended for users in Mainland China)
 pip install -U modelscope
-modelscope download --model Qwen/Qwen3-ASR-1.7B  --local_dir ./Qwen3-ASR-1.7B
-modelscope download --model Qwen/Qwen3-ASR-0.6B --local_dir ./Qwen3-ASR-0.6B
-modelscope download --model Qwen/Qwen3-ForcedAligner-0.6B --local_dir ./Qwen3-ForcedAligner-0.6B
+modelscope download --model Qwen/Qwen3-ASR-1.7B  --local_dir ./checkpoints/Qwen3-ASR-1.7B
+modelscope download --model Qwen/Qwen3-ASR-0.6B --local_dir ./checkpoints/Qwen3-ASR-0.6B
+modelscope download --model Qwen/Qwen3-ForcedAligner-0.6B --local_dir ./checkpoints/Qwen3-ForcedAligner-0.6B
 # Download through Hugging Face
 pip install -U "huggingface_hub[cli]"
-huggingface-cli download Qwen/Qwen3-ASR-1.7B --local-dir ./Qwen3-ASR-1.7B
-huggingface-cli download Qwen/Qwen3-ASR-0.6B --local-dir ./Qwen3-ASR-0.6B
-huggingface-cli download Qwen/Qwen3-ForcedAligner-0.6B --local-dir ./Qwen3-ForcedAligner-0.6B
+huggingface-cli download Qwen/Qwen3-ASR-1.7B --local-dir ./checkpoints/Qwen3-ASR-1.7B
+huggingface-cli download Qwen/Qwen3-ASR-0.6B --local-dir ./checkpoints/Qwen3-ASR-0.6B
+huggingface-cli download Qwen/Qwen3-ForcedAligner-0.6B --local-dir ./checkpoints/Qwen3-ForcedAligner-0.6B
 ```
 
 

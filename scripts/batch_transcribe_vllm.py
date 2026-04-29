@@ -1,0 +1,296 @@
+# coding=utf-8
+"""
+Qwen3-ASR batch transcription script (vLLM backend).
+Processes all .wav files in a directory and outputs a TSV and a summary JSON.
+
+Usage:
+  python scripts/batch_transcribe_vllm.py -i <audio_dir> [OPTIONS]
+
+  --model-path/-mp        ASR model path (default: ./checkpoints/Qwen3-ASR-1.7B)
+  --aligner-path/-ap      ForcedAligner path (default: ./checkpoints/Qwen3-ForcedAligner-0.6B)
+  --input/-i              Audio directory (required)
+  --output/-o             TSV output path (default: ./results/batch_asr_results_vllm.tsv)
+                          Summary file is derived automatically as <stem>_summary.json
+  --language/-l           Force language, e.g. "Chinese", "English"; auto-detect if not set
+  --timestamps/-ts        Enable word-level timestamps
+  --gpu-memory-util/-gmu  vLLM GPU memory utilization (default: 0.8)
+  --aligner-device/-ad    ForcedAligner device (default: cuda:0)
+  --max-new-tokens        Max new tokens for generation (default: 1024)
+  --batch-size/-bs        Inference batch size (default: 1)
+
+Note:
+  Requires vLLM extra:
+    pip install qwen-asr[vllm]
+"""
+
+import argparse
+import csv
+import json
+import os
+import time
+from dataclasses import dataclass, field
+from typing import List, Optional
+
+import soundfile as sf
+import torch
+
+from qwen_asr import Qwen3ASRModel
+
+
+_TSV_FIELDS = [
+    "filename",      # file name (no path)
+    "source",        # full audio file path
+    "audio_dur_s",   # audio duration (seconds)
+    "model_load_s",  # model load time (seconds)
+    "transcribe_s",  # transcription time (seconds)
+    "align_s",       # alignment time (seconds; empty when timestamps disabled)
+    "rtf",           # Real-Time Factor = transcribe_s / audio_dur_s
+    "align_rtf",     # Align RTF = align_s / audio_dur_s (empty when timestamps disabled)
+    "language",      # detected language
+    "text",          # transcription text
+    "time_stamps",   # word-level timestamps as JSON (empty when timestamps disabled)
+]
+
+
+# ---------------------------------------------------------------------------
+# Data structures
+# ---------------------------------------------------------------------------
+
+@dataclass
+class TimedResult:
+    source: str
+    language: Optional[str]
+    text: str
+    audio_dur_s: float
+    model_load_s: float
+    transcribe_s: float
+    align_s: Optional[float] = None
+    time_stamps: list = field(default_factory=list)
+
+    @property
+    def rtf(self) -> Optional[float]:
+        if self.audio_dur_s > 0:
+            return self.transcribe_s / self.audio_dur_s
+        return None
+
+    @property
+    def align_rtf(self) -> Optional[float]:
+        if self.align_s is not None and self.audio_dur_s > 0:
+            return self.align_s / self.audio_dur_s
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Audio utilities
+# ---------------------------------------------------------------------------
+
+def _audio_duration(path: str) -> float:
+    return sf.info(path).duration
+
+
+def _collect_wav_files(directory: str) -> List[str]:
+    """Recursively collect all .wav files in directory, sorted by filename."""
+    wav_files = []
+    for root, _, files in os.walk(directory):
+        for fname in sorted(files):
+            if fname.lower().endswith(".wav"):
+                wav_files.append(os.path.join(root, fname))
+    return wav_files
+
+
+# ---------------------------------------------------------------------------
+# Timed inference
+# ---------------------------------------------------------------------------
+
+def _timed(label: str, fn, *args, audio_duration_s: float = 0.0, **kwargs):
+    """Run fn and return (result, elapsed_s), printing elapsed time and RTF."""
+    t0 = time.perf_counter()
+    result = fn(*args, **kwargs)
+    elapsed = time.perf_counter() - t0
+    print(f"[timing] {label}: {elapsed:.3f}s")
+    if audio_duration_s > 0:
+        rtf = elapsed / audio_duration_s
+        print(f"[RTF]    RTF={rtf:.4f}, which means it can transcribe {1/rtf:.2f} seconds audio in 1 second")
+    return result, elapsed
+
+
+# ---------------------------------------------------------------------------
+# Output utilities
+# ---------------------------------------------------------------------------
+
+def _print_asr_results(title: str, results) -> None:
+    print(f"\n===== {title} =====")
+    for i, r in enumerate(results):
+        print(f"[sample {i}] language={r.language!r}")
+        print(f"[sample {i}] text={r.text!r}")
+        if r.time_stamps is not None and len(r.time_stamps) > 0:
+            head = r.time_stamps[0]
+            tail = r.time_stamps[-1]
+            print(f"[sample {i}] ts_first: {head.text!r} {head.start_time}->{head.end_time} s")
+            print(f"[sample {i}] ts_last : {tail.text!r} {tail.start_time}->{tail.end_time} s")
+
+
+def _write_tsv(output_path: str, rows: List[TimedResult]) -> None:
+    with open(output_path, "w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=_TSV_FIELDS, delimiter="\t")
+        writer.writeheader()
+        for row in rows:
+            ts_json = (
+                json.dumps(
+                    [{"text": ts.text, "start": ts.start_time, "end": ts.end_time}
+                     for ts in row.time_stamps],
+                    ensure_ascii=False,
+                )
+                if row.time_stamps else ""
+            )
+            writer.writerow({
+                "filename":     os.path.basename(row.source),
+                "source":       row.source,
+                "audio_dur_s":  f"{row.audio_dur_s:.3f}" if row.audio_dur_s else "",
+                "model_load_s": f"{row.model_load_s:.3f}",
+                "transcribe_s": f"{row.transcribe_s:.3f}",
+                "align_s":      f"{row.align_s:.3f}" if row.align_s is not None else "",
+                "rtf":          f"{row.rtf:.4f}" if row.rtf is not None else "",
+                "align_rtf":    f"{row.align_rtf:.4f}" if row.align_rtf is not None else "",
+                "language":     row.language or "",
+                "text":         row.text,
+                "time_stamps":  ts_json,
+            })
+    print(f"[output] TSV written: {output_path}")
+
+
+def _summary_path(tsv_path: str) -> str:
+    base, _ = os.path.splitext(tsv_path)
+    return base + "_summary.json"
+
+
+def _write_summary(output_path: str, rows: List[TimedResult], args) -> None:
+    total_audio = sum(r.audio_dur_s for r in rows)
+    total_transcribe = sum(r.transcribe_s for r in rows)
+    total_align = sum(r.align_s for r in rows if r.align_s is not None) or None
+
+    summary = {
+        "model_path":         args.model_path,
+        "aligner_path":       args.aligner_path,
+        "gpu_memory_util":    args.gpu_memory_util,
+        "aligner_device":     args.aligner_device,
+        "batch_size":         args.batch_size,
+        "timestamps":         args.timestamps,
+        "total_files":        len(rows),
+        "total_audio_dur_s":  round(total_audio, 3),
+        "total_transcribe_s": round(total_transcribe, 3),
+        "overall_rtf":        round(total_transcribe / total_audio, 4) if total_audio > 0 else None,
+        "total_align_s":      round(total_align, 3) if total_align is not None else None,
+        "overall_align_rtf":  round(total_align / total_audio, 4) if total_align and total_audio > 0 else None,
+    }
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(summary, f, ensure_ascii=False, indent=2)
+    print(f"[output] Summary written: {output_path}")
+
+
+def _make_timed_results(
+    asr_results,
+    sources: List[str],
+    audio_durs: List[float],
+    model_load_s: float,
+    transcribe_s: float,
+    align_s: Optional[float] = None,
+) -> List[TimedResult]:
+    return [
+        TimedResult(
+            source=sources[i] if i < len(sources) else "",
+            language=r.language,
+            text=r.text,
+            audio_dur_s=audio_durs[i] if i < len(audio_durs) else 0.0,
+            model_load_s=model_load_s,
+            transcribe_s=transcribe_s,
+            align_s=align_s,
+            time_stamps=r.time_stamps or [],
+        )
+        for i, r in enumerate(asr_results)
+    ]
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Qwen3-ASR batch transcription tool (vLLM backend)",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument("--model-path", "-mp", default="./checkpoints/Qwen3-ASR-1.7B", help="ASR model path")
+    parser.add_argument("--aligner-path", "-ap", default="./checkpoints/Qwen3-ForcedAligner-0.6B", help="ForcedAligner path")
+    parser.add_argument("--input", "-i", required=True, help="Audio directory")
+    parser.add_argument("--output", "-o", default="./results/batch_asr_results_vllm.tsv", help="TSV output path (summary derived as <stem>_summary.json)")
+    parser.add_argument("--language", "-l", default=None, help='Force language, e.g. "Chinese", "English"')
+    parser.add_argument("--timestamps", "-ts", action="store_true", help="Enable word-level timestamps")
+    parser.add_argument("--gpu-memory-util", "-gmu", type=float, default=0.8, dest="gpu_memory_util", help="vLLM GPU memory utilization")
+    parser.add_argument("--aligner-device", "-ad", default="cuda:0", dest="aligner_device", help="ForcedAligner device")
+    parser.add_argument("--max-new-tokens", type=int, default=1024, dest="max_new_tokens", help="Max new tokens for generation")
+    parser.add_argument("--batch-size", "-bs", type=int, default=1, dest="batch_size", help="Inference batch size")
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+
+    if not os.path.isdir(args.input):
+        raise ValueError(f"--input must be a directory, got: {args.input!r}")
+
+    os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
+
+    wav_files = _collect_wav_files(args.input)
+    if not wav_files:
+        print(f"[warning] No .wav files found in {args.input!r}")
+        return
+
+    print(f"[config] model:           {args.model_path}")
+    print(f"[config] aligner:         {args.aligner_path}")
+    print(f"[config] gpu_memory_util: {args.gpu_memory_util}")
+    print(f"[config] aligner_device:  {args.aligner_device}")
+    print(f"[config] batch_size:      {args.batch_size}")
+    print(f"[input]  {args.input}  ({len(wav_files)} .wav files)")
+
+    t0 = time.perf_counter()
+    asr = Qwen3ASRModel.LLM(
+        model=args.model_path,
+        gpu_memory_utilization=args.gpu_memory_util,
+        forced_aligner=args.aligner_path,
+        forced_aligner_kwargs=dict(
+            dtype=torch.bfloat16,
+            device_map=args.aligner_device,
+        ),
+        max_inference_batch_size=32,
+        max_new_tokens=args.max_new_tokens,
+    )
+    model_load_s = time.perf_counter() - t0
+    print(f"[timing] model load: {model_load_s:.3f}s")
+
+    all_rows: List[TimedResult] = []
+    for batch_start in range(0, len(wav_files), args.batch_size):
+        batch_files = wav_files[batch_start: batch_start + args.batch_size]
+        durs = [_audio_duration(f) for f in batch_files]
+        label = f"batch [{batch_start}~{batch_start + len(batch_files) - 1}]"
+        print(f"\n[batch] {label}: {[os.path.basename(f) for f in batch_files]}")
+
+        results, elapsed = _timed(
+            label,
+            asr.transcribe,
+            audio=batch_files,
+            language=args.language,
+            return_time_stamps=args.timestamps,
+            audio_duration_s=sum(durs),
+        )
+        _print_asr_results(label, results)
+        align_s = elapsed if args.timestamps else None
+        all_rows += _make_timed_results(results, batch_files, durs, model_load_s, elapsed, align_s)
+
+    print()
+    _write_tsv(args.output, all_rows)
+    _write_summary(_summary_path(args.output), all_rows, args)
+
+
+if __name__ == "__main__":
+    main()

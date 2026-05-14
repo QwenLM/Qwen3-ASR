@@ -15,6 +15,7 @@ Usage:
   --gpu-memory-util/-gmu  vLLM GPU memory utilization (default: 0.8)
   --aligner-device/-ad    ForcedAligner device (default: cuda:0)
   --max-new-tokens        Max new tokens for generation (default: 1024)
+  --seperate_channel/-sc  Split multi-channel audio and transcribe each channel separately
 
 Note:
   Requires vLLM extra:
@@ -24,6 +25,7 @@ Note:
 import argparse
 import json
 import os
+import tempfile
 import time
 
 import soundfile as sf
@@ -62,6 +64,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--gpu-memory-util", "-gmu", type=float, default=0.8, dest="gpu_memory_util", help="vLLM GPU memory utilization")
     parser.add_argument("--aligner-device", "-ad", default="cuda:0", dest="aligner_device", help="ForcedAligner device")
     parser.add_argument("--max-new-tokens", type=int, default=1024, dest="max_new_tokens", help="Max new tokens for generation")
+    parser.add_argument("--seperate_channel", "-sc", action="store_true", default=False,
+                        help="Split multi-channel audio and transcribe each channel separately")
     return parser.parse_args()
 
 
@@ -72,8 +76,6 @@ def main() -> None:
         raise ValueError(f"--input must be a file, got: {args.input!r}")
 
     basename = os.path.splitext(os.path.basename(args.input))[0]
-    output_path = args.output or f"results/{basename}-asr_result.json"
-    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
 
     print(f"[config] model:           {args.model_path}")
     print(f"[config] aligner:         {args.aligner_path}")
@@ -96,50 +98,95 @@ def main() -> None:
     model_load_s = time.perf_counter() - t0
     print(f"[timing] model load: {model_load_s:.3f}s")
 
-    audio_dur_s = _audio_duration(args.input)
-    results, transcribe_s = _timed(
-        "transcribe",
-        asr.transcribe,
-        audio=args.input,
-        language=args.language,
-        return_time_stamps=args.timestamps,
-        audio_duration_s=audio_dur_s,
-    )
+    def _build_output(audio_path, r, audio_dur_s, transcribe_s):
+        align_s = transcribe_s if args.timestamps else None
+        rtf = transcribe_s / audio_dur_s if audio_dur_s > 0 else None
+        align_rtf = align_s / audio_dur_s if (align_s and audio_dur_s > 0) else None
+        return {
+            "source":        audio_path,
+            "filename":      os.path.basename(audio_path),
+            "language":      r.language,
+            "text":          r.text,
+            "audio_dur_s":   round(audio_dur_s, 3),
+            "model_load_s":  round(model_load_s, 3),
+            "transcribe_s":  round(transcribe_s, 3),
+            "align_s":       round(align_s, 3) if align_s is not None else None,
+            "rtf":           round(rtf, 4) if rtf is not None else None,
+            "align_rtf":     round(align_rtf, 4) if align_rtf is not None else None,
+            "time_stamps":   (
+                [{"text": ts.text, "start": ts.start_time, "end": ts.end_time}
+                 for ts in r.time_stamps]
+                if r.time_stamps else []
+            ),
+        }
 
-    r = results[0]
-    align_s = transcribe_s if args.timestamps else None
-    rtf = transcribe_s / audio_dur_s if audio_dur_s > 0 else None
-    align_rtf = align_s / audio_dur_s if (align_s and audio_dur_s > 0) else None
+    def _print_result(output):
+        print(f"\n[result] language={output['language']!r}")
+        print(f"[result] text={output['text']!r}")
+        if output["time_stamps"]:
+            head = output["time_stamps"][0]
+            tail = output["time_stamps"][-1]
+            print(f"[result] ts_first: {head['text']!r} {head['start']}->{head['end']} s")
+            print(f"[result] ts_last : {tail['text']!r} {tail['start']}->{tail['end']} s")
 
-    output = {
-        "source":        args.input,
-        "filename":      os.path.basename(args.input),
-        "language":      r.language,
-        "text":          r.text,
-        "audio_dur_s":   round(audio_dur_s, 3),
-        "model_load_s":  round(model_load_s, 3),
-        "transcribe_s":  round(transcribe_s, 3),
-        "align_s":       round(align_s, 3) if align_s is not None else None,
-        "rtf":           round(rtf, 4) if rtf is not None else None,
-        "align_rtf":     round(align_rtf, 4) if align_rtf is not None else None,
-        "time_stamps":   (
-            [{"text": ts.text, "start": ts.start_time, "end": ts.end_time}
-             for ts in r.time_stamps]
-            if r.time_stamps else []
-        ),
-    }
+    if args.seperate_channel:
+        audio_data, sample_rate = sf.read(args.input, always_2d=True)
+        num_channels = audio_data.shape[1]
+        print(f"[channel] detected {num_channels} channel(s), transcribing separately")
 
-    print(f"\n[result] language={r.language!r}")
-    print(f"[result] text={r.text!r}")
-    if output["time_stamps"]:
-        head = output["time_stamps"][0]
-        tail = output["time_stamps"][-1]
-        print(f"[result] ts_first: {head['text']!r} {head['start']}->{head['end']} s")
-        print(f"[result] ts_last : {tail['text']!r} {tail['start']}->{tail['end']} s")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            for ch in range(num_channels):
+                channel_audio = audio_data[:, ch]
+                tmp_wav = os.path.join(tmpdir, f"channel{ch}.wav")
+                sf.write(tmp_wav, channel_audio, sample_rate)
 
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(output, f, ensure_ascii=False, indent=2)
-    print(f"\n[output] JSON written: {output_path}")
+                audio_dur_s = len(channel_audio) / sample_rate
+                print(f"\n[channel] processing channel {ch} ...")
+                results, transcribe_s = _timed(
+                    f"transcribe channel {ch}",
+                    asr.transcribe,
+                    audio=tmp_wav,
+                    language=args.language,
+                    return_time_stamps=args.timestamps,
+                    audio_duration_s=audio_dur_s,
+                )
+
+                r = results[0]
+                output = _build_output(args.input, r, audio_dur_s, transcribe_s)
+                output["channel"] = ch
+
+                if args.output:
+                    out_base, out_ext = os.path.splitext(args.output)
+                    output_path = f"{out_base}_channel{ch}{out_ext}"
+                else:
+                    output_path = f"results/{basename}_channel{ch}-asr_result.json"
+                os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+
+                _print_result(output)
+                with open(output_path, "w", encoding="utf-8") as f:
+                    json.dump(output, f, ensure_ascii=False, indent=2)
+                print(f"[output] JSON written: {output_path}")
+    else:
+        output_path = args.output or f"results/{basename}-asr_result.json"
+        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+
+        audio_dur_s = _audio_duration(args.input)
+        results, transcribe_s = _timed(
+            "transcribe",
+            asr.transcribe,
+            audio=args.input,
+            language=args.language,
+            return_time_stamps=args.timestamps,
+            audio_duration_s=audio_dur_s,
+        )
+
+        r = results[0]
+        output = _build_output(args.input, r, audio_dur_s, transcribe_s)
+
+        _print_result(output)
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(output, f, ensure_ascii=False, indent=2)
+        print(f"\n[output] JSON written: {output_path}")
 
 
 if __name__ == "__main__":

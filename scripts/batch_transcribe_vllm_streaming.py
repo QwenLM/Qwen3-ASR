@@ -16,6 +16,7 @@ Usage:
   --max-new-tokens        Max new tokens per streaming chunk (default: 32)
   --chunk-size-sec        Streaming chunk size in seconds (default: 2.0)
   --step-ms               Audio feed step in milliseconds (default: 1000)
+  --seperate_channel/-sc  Split multi-channel audio, transcribe each channel separately
 
 Note:
   Requires vLLM extra:
@@ -28,6 +29,7 @@ import argparse
 import csv
 import json
 import os
+import tempfile
 import time
 from dataclasses import dataclass
 from typing import List, Optional
@@ -41,6 +43,7 @@ from qwen_asr import Qwen3ASRModel
 _TSV_FIELDS = [
     "filename",      # file name (no path)
     "source",        # full audio file path
+    "channel",       # channel index (empty when seperate_channel disabled)
     "audio_dur_s",   # audio duration (seconds)
     "model_load_s",  # model load time (seconds)
     "transcribe_s",  # transcription time (seconds)
@@ -64,6 +67,7 @@ class StreamingResult:
     model_load_s: float
     transcribe_s: float
     total_calls: int
+    channel: Optional[int] = None
 
     @property
     def rtf(self) -> Optional[float]:
@@ -113,6 +117,7 @@ def _write_tsv(output_path: str, rows: List[StreamingResult]) -> None:
             writer.writerow({
                 "filename":     os.path.basename(row.source),
                 "source":       row.source,
+                "channel":      str(row.channel) if row.channel is not None else "",
                 "audio_dur_s":  f"{row.audio_dur_s:.3f}" if row.audio_dur_s else "",
                 "model_load_s": f"{row.model_load_s:.3f}",
                 "transcribe_s": f"{row.transcribe_s:.3f}",
@@ -165,6 +170,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-new-tokens", type=int, default=32, dest="max_new_tokens", help="Max new tokens per streaming chunk")
     parser.add_argument("--chunk-size-sec", type=float, default=2.0, dest="chunk_size_sec", help="Streaming chunk size in seconds")
     parser.add_argument("--step-ms", type=int, default=1000, dest="step_ms", help="Audio feed step in milliseconds")
+    parser.add_argument("--seperate_channel", "-sc", action="store_true", default=False,
+                        help="Split multi-channel audio and transcribe each channel separately")
     return parser.parse_args()
 
 
@@ -200,46 +207,67 @@ def main() -> None:
     step = int(round(args.step_ms / 1000.0 * sr))
 
     all_rows: List[StreamingResult] = []
-    for wav_path in wav_files:
-        print(f"\n[file] {os.path.basename(wav_path)}")
-        wav16k = _load_wav_16k(wav_path)
-        audio_dur_s = wav16k.shape[0] / 16000.0
 
-        state = asr.init_streaming_state(
-            unfixed_chunk_num=2,
-            unfixed_token_num=5,
-            chunk_size_sec=args.chunk_size_sec,
-            language=args.language,
-        )
+    if args.seperate_channel:
+        tmp_root = tempfile.mkdtemp()
+        expanded: List[tuple] = []  # (tmp_wav, orig_path, channel_idx)
+        for wav_path in wav_files:
+            audio_data, sample_rate = sf.read(wav_path, always_2d=True)
+            num_channels = audio_data.shape[1]
+            for ch in range(num_channels):
+                tmp_wav = os.path.join(tmp_root, f"{os.path.splitext(os.path.basename(wav_path))[0]}_ch{ch}.wav")
+                sf.write(tmp_wav, audio_data[:, ch], sample_rate)
+                expanded.append((tmp_wav, wav_path, ch))
+    else:
+        expanded = [(f, f, None) for f in wav_files]
 
-        t1 = time.perf_counter()
-        pos = 0
-        call_id = 0
-        while pos < wav16k.shape[0]:
-            seg = wav16k[pos: pos + step]
-            pos += seg.shape[0]
-            call_id += 1
-            asr.streaming_transcribe(seg, state)
-            print(f"[call {call_id:03d}] language={state.language!r} text={state.text!r}")
+    try:
+        for tmp_wav, orig_path, ch in expanded:
+            ch_info = f" (channel {ch})" if ch is not None else ""
+            print(f"\n[file] {os.path.basename(orig_path)}{ch_info}")
+            wav16k = _load_wav_16k(tmp_wav)
+            audio_dur_s = wav16k.shape[0] / 16000.0
 
-        asr.finish_streaming_transcribe(state)
-        transcribe_s = time.perf_counter() - t1
+            state = asr.init_streaming_state(
+                unfixed_chunk_num=2,
+                unfixed_token_num=5,
+                chunk_size_sec=args.chunk_size_sec,
+                language=args.language,
+            )
 
-        print(f"[final]  language={state.language!r} text={state.text!r}")
-        print(f"[timing] transcribe: {transcribe_s:.3f}s")
-        if audio_dur_s > 0:
-            rtf = transcribe_s / audio_dur_s
-            print(f"[RTF]    RTF={rtf:.4f}, which means it can transcribe {1/rtf:.2f} seconds audio in 1 second")
+            t1 = time.perf_counter()
+            pos = 0
+            call_id = 0
+            while pos < wav16k.shape[0]:
+                seg = wav16k[pos: pos + step]
+                pos += seg.shape[0]
+                call_id += 1
+                asr.streaming_transcribe(seg, state)
+                print(f"[call {call_id:03d}] language={state.language!r} text={state.text!r}")
 
-        all_rows.append(StreamingResult(
-            source=wav_path,
-            language=state.language,
-            text=state.text,
-            audio_dur_s=audio_dur_s,
-            model_load_s=model_load_s,
-            transcribe_s=transcribe_s,
-            total_calls=call_id,
-        ))
+            asr.finish_streaming_transcribe(state)
+            transcribe_s = time.perf_counter() - t1
+
+            print(f"[final]  language={state.language!r} text={state.text!r}")
+            print(f"[timing] transcribe: {transcribe_s:.3f}s")
+            if audio_dur_s > 0:
+                rtf = transcribe_s / audio_dur_s
+                print(f"[RTF]    RTF={rtf:.4f}, which means it can transcribe {1/rtf:.2f} seconds audio in 1 second")
+
+            all_rows.append(StreamingResult(
+                source=orig_path,
+                language=state.language,
+                text=state.text,
+                audio_dur_s=audio_dur_s,
+                model_load_s=model_load_s,
+                transcribe_s=transcribe_s,
+                total_calls=call_id,
+                channel=ch,
+            ))
+    finally:
+        if args.seperate_channel:
+            import shutil
+            shutil.rmtree(tmp_root, ignore_errors=True)
 
     print()
     _write_tsv(args.output, all_rows)

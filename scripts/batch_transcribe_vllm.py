@@ -17,6 +17,7 @@ Usage:
   --aligner-device/-ad    ForcedAligner device (default: cuda:0)
   --max-new-tokens        Max new tokens for generation (default: 1024)
   --batch-size/-bs        Inference batch size (default: 1)
+  --seperate_channel/-sc  Split multi-channel audio, transcribe each channel separately
 
 Note:
   Requires vLLM extra:
@@ -27,6 +28,7 @@ import argparse
 import csv
 import json
 import os
+import tempfile
 import time
 from dataclasses import dataclass, field
 from typing import List, Optional
@@ -40,6 +42,7 @@ from qwen_asr import Qwen3ASRModel
 _TSV_FIELDS = [
     "filename",      # file name (no path)
     "source",        # full audio file path
+    "channel",       # channel index (empty when seperate_channel disabled)
     "audio_dur_s",   # audio duration (seconds)
     "model_load_s",  # model load time (seconds)
     "transcribe_s",  # transcription time (seconds)
@@ -66,6 +69,7 @@ class TimedResult:
     transcribe_s: float
     align_s: Optional[float] = None
     time_stamps: list = field(default_factory=list)
+    channel: Optional[int] = None
 
     @property
     def rtf(self) -> Optional[float]:
@@ -146,6 +150,7 @@ def _write_tsv(output_path: str, rows: List[TimedResult]) -> None:
             writer.writerow({
                 "filename":     os.path.basename(row.source),
                 "source":       row.source,
+                "channel":      str(row.channel) if row.channel is not None else "",
                 "audio_dur_s":  f"{row.audio_dur_s:.3f}" if row.audio_dur_s else "",
                 "model_load_s": f"{row.model_load_s:.3f}",
                 "transcribe_s": f"{row.transcribe_s:.3f}",
@@ -230,6 +235,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--aligner-device", "-ad", default="cuda:0", dest="aligner_device", help="ForcedAligner device")
     parser.add_argument("--max-new-tokens", type=int, default=1024, dest="max_new_tokens", help="Max new tokens for generation")
     parser.add_argument("--batch-size", "-bs", type=int, default=1, dest="batch_size", help="Inference batch size")
+    parser.add_argument("--seperate_channel", "-sc", action="store_true", default=False,
+                        help="Split multi-channel audio and transcribe each channel separately")
     return parser.parse_args()
 
 
@@ -269,23 +276,51 @@ def main() -> None:
     print(f"[timing] model load: {model_load_s:.3f}s")
 
     all_rows: List[TimedResult] = []
-    for batch_start in range(0, len(wav_files), args.batch_size):
-        batch_files = wav_files[batch_start: batch_start + args.batch_size]
-        durs = [_audio_duration(f) for f in batch_files]
-        label = f"batch [{batch_start}~{batch_start + len(batch_files) - 1}]"
-        print(f"\n[batch] {label}: {[os.path.basename(f) for f in batch_files]}")
 
-        results, elapsed = _timed(
-            label,
-            asr.transcribe,
-            audio=batch_files,
-            language=args.language,
-            return_time_stamps=args.timestamps,
-            audio_duration_s=sum(durs),
-        )
-        _print_asr_results(label, results)
-        align_s = elapsed if args.timestamps else None
-        all_rows += _make_timed_results(results, batch_files, durs, model_load_s, elapsed, align_s)
+    if args.seperate_channel:
+        tmp_root = tempfile.mkdtemp()
+        expanded: List[tuple] = []
+        for wav_path in wav_files:
+            audio_data, sample_rate = sf.read(wav_path, always_2d=True)
+            num_channels = audio_data.shape[1]
+            for ch in range(num_channels):
+                tmp_wav = os.path.join(tmp_root, f"{os.path.splitext(os.path.basename(wav_path))[0]}_ch{ch}.wav")
+                sf.write(tmp_wav, audio_data[:, ch], sample_rate)
+                expanded.append((tmp_wav, wav_path, ch))
+        tmp_files = [e[0] for e in expanded]
+    else:
+        expanded = [(f, f, None) for f in wav_files]
+        tmp_files = wav_files
+
+    try:
+        for batch_start in range(0, len(tmp_files), args.batch_size):
+            batch_entries = expanded[batch_start: batch_start + args.batch_size]
+            batch_tmp = [e[0] for e in batch_entries]
+            batch_orig = [e[1] for e in batch_entries]
+            batch_chs = [e[2] for e in batch_entries]
+            durs = [_audio_duration(f) for f in batch_tmp]
+            label = f"batch [{batch_start}~{batch_start + len(batch_entries) - 1}]"
+            ch_info = f" channels={batch_chs}" if args.seperate_channel else ""
+            print(f"\n[batch] {label}: {[os.path.basename(f) for f in batch_orig]}{ch_info}")
+
+            results, elapsed = _timed(
+                label,
+                asr.transcribe,
+                audio=batch_tmp,
+                language=args.language,
+                return_time_stamps=args.timestamps,
+                audio_duration_s=sum(durs),
+            )
+            _print_asr_results(label, results)
+            align_s = elapsed if args.timestamps else None
+            timed = _make_timed_results(results, batch_orig, durs, model_load_s, elapsed, align_s)
+            for tr, ch in zip(timed, batch_chs):
+                tr.channel = ch
+            all_rows += timed
+    finally:
+        if args.seperate_channel:
+            import shutil
+            shutil.rmtree(tmp_root, ignore_errors=True)
 
     print()
     _write_tsv(args.output, all_rows)

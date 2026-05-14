@@ -15,6 +15,7 @@ Usage:
   --max-new-tokens        Max new tokens per chunk (default: 32)
   --chunk-size-sec        Streaming chunk size in seconds (default: 2.0)
   --step-ms               Audio feed step in milliseconds (default: 1000)
+  --seperate_channel/-sc  Split multi-channel audio and transcribe each channel separately
 
 Note:
   Requires vLLM extra:
@@ -26,6 +27,7 @@ import argparse
 import io
 import json
 import os
+import tempfile
 import time
 
 import numpy as np
@@ -35,7 +37,7 @@ from qwen_asr import Qwen3ASRModel
 
 
 def _load_wav_16k(path: str) -> np.ndarray:
-    """Load a wav file and resample to 16 kHz if needed."""
+    """Load a wav file and resample to 16 kHz if needed (mono)."""
     wav, sr = sf.read(path, dtype="float32", always_2d=False)
     wav = np.asarray(wav, dtype=np.float32)
     if sr == 16000:
@@ -66,39 +68,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-new-tokens", type=int, default=32, dest="max_new_tokens", help="Max new tokens per streaming chunk")
     parser.add_argument("--chunk-size-sec", type=float, default=2.0, dest="chunk_size_sec", help="Streaming chunk size in seconds")
     parser.add_argument("--step-ms", type=int, default=1000, dest="step_ms", help="Audio feed step in milliseconds")
+    parser.add_argument("--seperate_channel", "-sc", action="store_true", default=False,
+                        help="Split multi-channel audio and transcribe each channel separately")
     return parser.parse_args()
 
 
-def main() -> None:
-    args = parse_args()
-
-    if not os.path.isfile(args.input):
-        raise ValueError(f"--input must be a file, got: {args.input!r}")
-
-    basename = os.path.splitext(os.path.basename(args.input))[0]
-    output_path = args.output or f"results/{basename}-asr_result_streaming.json"
-    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
-
-    print(f"[config] model:           {args.model_path}")
-    print(f"[config] gpu_memory_util: {args.gpu_memory_util}")
-    print(f"[config] chunk_size_sec:  {args.chunk_size_sec}")
-    print(f"[config] step_ms:         {args.step_ms}")
-    print(f"[input]  {args.input}")
-
-    t0 = time.perf_counter()
-    asr = Qwen3ASRModel.LLM(
-        model=args.model_path,
-        gpu_memory_utilization=args.gpu_memory_util,
-        max_new_tokens=args.max_new_tokens,
-    )
-    model_load_s = time.perf_counter() - t0
-    print(f"[timing] model load: {model_load_s:.3f}s")
-
-    wav16k = _load_wav_16k(args.input)
-    audio_dur_s = _audio_duration_samples(wav16k)
-
+def _stream_transcribe(asr, wav16k, args, model_load_s, audio_path, output_path):
+    """Run streaming transcription on a 1-D 16kHz numpy array and write JSON output."""
     sr = 16000
     step = int(round(args.step_ms / 1000.0 * sr))
+    audio_dur_s = wav16k.shape[0] / float(sr)
 
     state = asr.init_streaming_state(
         unfixed_chunk_num=2,
@@ -127,8 +106,8 @@ def main() -> None:
         print(f"[RTF]    RTF={rtf:.4f}, which means it can transcribe {1/rtf:.2f} seconds audio in 1 second")
 
     output = {
-        "source":        args.input,
-        "filename":      os.path.basename(args.input),
+        "source":        audio_path,
+        "filename":      os.path.basename(audio_path),
         "language":      state.language,
         "text":          state.text,
         "audio_dur_s":   round(audio_dur_s, 3),
@@ -139,10 +118,60 @@ def main() -> None:
         "chunk_size_sec": args.chunk_size_sec,
         "total_calls":   call_id,
     }
-
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
     print(f"\n[output] JSON written: {output_path}")
+
+
+def main() -> None:
+    args = parse_args()
+
+    if not os.path.isfile(args.input):
+        raise ValueError(f"--input must be a file, got: {args.input!r}")
+
+    basename = os.path.splitext(os.path.basename(args.input))[0]
+
+    print(f"[config] model:           {args.model_path}")
+    print(f"[config] gpu_memory_util: {args.gpu_memory_util}")
+    print(f"[config] chunk_size_sec:  {args.chunk_size_sec}")
+    print(f"[config] step_ms:         {args.step_ms}")
+    print(f"[input]  {args.input}")
+
+    t0 = time.perf_counter()
+    asr = Qwen3ASRModel.LLM(
+        model=args.model_path,
+        gpu_memory_utilization=args.gpu_memory_util,
+        max_new_tokens=args.max_new_tokens,
+    )
+    model_load_s = time.perf_counter() - t0
+    print(f"[timing] model load: {model_load_s:.3f}s")
+
+    if args.seperate_channel:
+        audio_data, sample_rate = sf.read(args.input, always_2d=True)
+        num_channels = audio_data.shape[1]
+        print(f"[channel] detected {num_channels} channel(s), transcribing separately")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            for ch in range(num_channels):
+                channel_audio = audio_data[:, ch]
+                tmp_wav = os.path.join(tmpdir, f"channel{ch}.wav")
+                sf.write(tmp_wav, channel_audio, sample_rate)
+
+                print(f"\n[channel] processing channel {ch} ...")
+                wav16k = _load_wav_16k(tmp_wav)
+
+                if args.output:
+                    out_base, out_ext = os.path.splitext(args.output)
+                    output_path = f"{out_base}_channel{ch}{out_ext}"
+                else:
+                    output_path = f"results/{basename}_channel{ch}-asr_result_streaming.json"
+
+                _stream_transcribe(asr, wav16k, args, model_load_s, args.input, output_path)
+    else:
+        output_path = args.output or f"results/{basename}-asr_result_streaming.json"
+        wav16k = _load_wav_16k(args.input)
+        _stream_transcribe(asr, wav16k, args, model_load_s, args.input, output_path)
 
 
 if __name__ == "__main__":

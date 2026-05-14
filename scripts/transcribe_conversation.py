@@ -20,6 +20,7 @@ Usage:
   --silence-thresh/-st    RMS energy threshold for silence detection (default: 0.01)
   --min-speech/-ms        Min speech segment duration (s) to keep (default: 0.2)
   --channels/-c           Number of channels to process (default: 2)
+  --silero_vad            Use Silero VAD instead of energy-based VAD (default: False)
 
 Output format:
   {
@@ -72,6 +73,8 @@ def parse_args() -> argparse.Namespace:
                         help="Min speech segment duration (s); shorter segments are discarded")
     parser.add_argument("--channels", "-c", type=int, default=2,
                         help="Number of channels to process")
+    parser.add_argument("--silero_vad", action="store_true", default=False,
+                        help="Use Silero VAD instead of energy-based VAD for speech segment detection")
     return parser.parse_args()
 
 
@@ -138,6 +141,48 @@ def _energy_vad(audio: np.ndarray, sample_rate: int,
     return segments
 
 
+def _silero_vad(audio: np.ndarray, sample_rate: int, min_speech_s: float) -> list:
+    """
+    Silero VAD-based speech segment detection.
+    Returns list of {"start": float, "end": float} dicts (seconds).
+
+    Requires: pip install silero-vad  (or torch.hub will auto-download on first run)
+    Silero VAD only supports 8000 or 16000 Hz; audio is resampled if needed.
+    """
+    target_sr = 16000
+
+    # Resample to 16kHz if needed (simple linear interpolation)
+    if sample_rate != target_sr:
+        dur = len(audio) / float(sample_rate)
+        n_new = int(round(dur * target_sr))
+        if n_new <= 0:
+            return []
+        x_old = np.linspace(0.0, dur, num=len(audio), endpoint=False)
+        x_new = np.linspace(0.0, dur, num=n_new, endpoint=False)
+        audio = np.interp(x_new, x_old, audio).astype(np.float32)
+    else:
+        audio = audio.astype(np.float32)
+
+    model, utils = torch.hub.load(
+        repo_or_dir="snakers4/silero-vad",
+        model="silero_vad",
+        force_reload=False,
+        trust_repo=True,
+    )
+    get_speech_timestamps = utils[0]
+
+    wav_tensor = torch.from_numpy(audio)
+    speech_timestamps = get_speech_timestamps(
+        wav_tensor,
+        model,
+        sampling_rate=target_sr,
+        min_speech_duration_ms=int(min_speech_s * 1000),
+        return_seconds=True,
+    )
+
+    return [{"start": t["start"], "end": t["end"]} for t in speech_timestamps]
+
+
 def main() -> None:
     args = parse_args()
 
@@ -158,8 +203,10 @@ def main() -> None:
     dtype = _DTYPE_MAP[args.dtype]
     print(f"[config] model:         {args.model_path}")
     print(f"[config] device:        {args.device}  dtype: {args.dtype}")
-    print(f"[config] silence_gap:   {args.silence_gap}s")
-    print(f"[config] silence_thresh:{args.silence_thresh}")
+    print(f"[config] vad:           {'silero' if args.silero_vad else 'energy'}")
+    if not args.silero_vad:
+        print(f"[config] silence_gap:   {args.silence_gap}s")
+        print(f"[config] silence_thresh:{args.silence_thresh}")
     print(f"[config] min_speech:    {args.min_speech}s")
     print(f"[config] channels:      {channels_to_process}")
     print(f"[input]  {args.input}  ({num_channels} ch, {total_dur_s:.1f}s)")
@@ -183,13 +230,19 @@ def main() -> None:
             channel_audio = audio_data[:, ch]
 
             # VAD: find speech segments for this channel
-            segments = _energy_vad(
-                channel_audio, sample_rate,
-                silence_gap_s=args.silence_gap,
-                silence_thresh=args.silence_thresh,
-                min_speech_s=args.min_speech,
-            )
-            print(f"\n[channel {ch}] {len(segments)} segment(s) detected by VAD")
+            if args.silero_vad:
+                segments = _silero_vad(
+                    channel_audio, sample_rate,
+                    min_speech_s=args.min_speech,
+                )
+            else:
+                segments = _energy_vad(
+                    channel_audio, sample_rate,
+                    silence_gap_s=args.silence_gap,
+                    silence_thresh=args.silence_thresh,
+                    min_speech_s=args.min_speech,
+                )
+            print(f"\n[channel {ch}] {len(segments)} segment(s) detected by {'silero' if args.silero_vad else 'energy'} VAD")
 
             if not segments:
                 print(f"[channel {ch}] no speech detected, skipping")

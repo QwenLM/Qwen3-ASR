@@ -179,7 +179,15 @@ python scripts/transcribe_conversation.py -i data/call.wav -d mps --vad ten-vad 
 
 ### `vad_utils.py`
 
-Shared VAD module used by `transcribe_conversation.py`. Can also be imported directly:
+Shared VAD module used by `transcribe_conversation.py`. Provides a unified interface for three backends:
+
+| Backend | Dependency | Description |
+|---------|-----------|-------------|
+| `simple` | none | Energy-based RMS VAD. Splits on frames where RMS energy falls below `--silence-thresh`. Fast, no model needed. |
+| `silero` | `pip install silero_vad` | Neural VAD using Silero model (bundled in pip package). More accurate, especially for noisy audio. Resamples to 16kHz internally. |
+| `ten-vad` | `pip install git+https://github.com/TEN-framework/ten-vad.git` | Low-latency streaming neural VAD. Processes audio frame-by-frame at 16kHz with 16ms hop. Uses same `--silence-gap` tolerance window as `simple`. |
+
+Can also be imported directly:
 
 ```python
 from vad_utils import init_vad, apply_vad

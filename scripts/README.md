@@ -13,6 +13,19 @@ modelscope download --model Qwen/Qwen3-ForcedAligner-0.6B --local_dir ./checkpoi
 python scripts/download_test_audio.py
 ```
 
+### Optional: VAD backends for `transcribe_conversation.py`
+
+By default, `transcribe_conversation.py` uses the built-in energy-based VAD (`--vad simple`, no extra dependencies).
+To use a neural VAD backend, install the corresponding package:
+
+```bash
+# Silero VAD (recommended neural VAD, bundled model — no network needed at runtime)
+pip install silero_vad
+
+# TEN VAD (low-latency streaming neural VAD)
+pip install git+https://github.com/TEN-framework/ten-vad.git
+```
+
 ---
 
 ## Single-file Transcription

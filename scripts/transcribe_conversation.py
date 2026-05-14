@@ -40,12 +40,11 @@ import os
 import tempfile
 import time
 
-import numpy as np
 import soundfile as sf
 import torch
 
 from qwen_asr import Qwen3ASRModel
-from vad_utils import apply_vad
+from vad_utils import apply_vad, init_vad
 
 
 _DTYPE_MAP = {
@@ -122,6 +121,11 @@ def main() -> None:
     )
     print(f"[timing] model load: {time.perf_counter() - t0:.3f}s")
 
+    print(f"[vad] initializing {args.vad} VAD...")
+    t_vad = time.perf_counter()
+    vad_instance = init_vad(args.vad, args.vad_model_path)
+    print(f"[vad] initialized in {time.perf_counter() - t_vad:.3f}s")
+
     all_utterances = []
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -136,7 +140,7 @@ def main() -> None:
             segments = apply_vad(
                 tmp_ch_wav,
                 vad_type=args.vad,
-                vad_model_path=args.vad_model_path,
+                vad_instance=vad_instance,
                 silence_gap_s=args.silence_gap,
                 silence_thresh=args.silence_thresh,
                 min_speech_s=args.min_speech,

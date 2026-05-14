@@ -2,21 +2,60 @@
 """
 VAD (Voice Activity Detection) utilities for Qwen3-ASR scripts.
 
-Provides a unified apply_vad() interface supporting three backends:
+Provides a unified interface supporting three backends:
   - 'simple'  : Energy-based VAD (no extra dependencies)
   - 'silero'  : Silero VAD (requires torch.hub / silero-vad package)
   - 'ten-vad' : TEN VAD (requires: pip install git+https://github.com/TEN-framework/ten-vad.git)
+
+Typical usage (one-time init, then apply per audio file):
+
+    vad = init_vad("silero")
+    for audio_path in files:
+        segments = apply_vad(audio_path, vad_instance=vad, min_speech_s=0.2)
 """
 
-from typing import List, Dict
+from typing import Any, Dict, List, Optional
 import numpy as np
 import soundfile as sf
+
+
+def init_vad(vad_type: str = "simple", vad_model_path: Optional[str] = None) -> Any:
+    """
+    Initialize and return a VAD instance.  Call once before processing multiple files.
+
+    Parameters
+    ----------
+    vad_type       : 'simple' | 'silero' | 'ten-vad'
+    vad_model_path : reserved for future model-based backends
+
+    Returns
+    -------
+    - 'simple'  : None  (no state needed)
+    - 'silero'  : (model, get_speech_timestamps) tuple
+    - 'ten-vad' : ten_vad.TenVad class (instance created fresh per audio to reset state)
+    """
+    if vad_type == "simple":
+        return None
+    elif vad_type == "silero":
+        import torch
+        model, utils = torch.hub.load(
+            repo_or_dir="snakers4/silero-vad",
+            model="silero_vad",
+            force_reload=False,
+            trust_repo=True,
+        )
+        return (model, utils[0])  # (model, get_speech_timestamps)
+    elif vad_type == "ten-vad":
+        from ten_vad import TenVad
+        return TenVad  # return the class; instance created per audio to reset internal state
+    else:
+        raise ValueError(f"Unknown vad_type: {vad_type!r}. Choose from 'simple', 'silero', 'ten-vad'.")
 
 
 def apply_vad(
     audio_path: str,
     vad_type: str = "simple",
-    vad_model_path=None,
+    vad_instance: Any = None,
     silence_gap_s: float = 0.5,
     silence_thresh: float = 0.01,
     min_speech_s: float = 0.2,
@@ -26,26 +65,31 @@ def apply_vad(
 
     Parameters
     ----------
-    audio_path      : path to a mono WAV file (any sample rate)
-    vad_type        : 'simple' | 'silero' | 'ten-vad'
-    vad_model_path  : reserved for future model-based backends (unused currently)
-    silence_gap_s   : (simple) min silence gap (s) to split segments
-    silence_thresh  : (simple) RMS energy threshold for silence
-    min_speech_s    : minimum speech segment duration (s) to keep
+    audio_path    : path to a mono WAV file (any sample rate)
+    vad_type      : 'simple' | 'silero' | 'ten-vad'
+    vad_instance  : pre-initialized VAD object from init_vad(); if None, initializes on the fly
+    silence_gap_s : (simple) min silence gap (s) to split segments
+    silence_thresh: (simple) RMS energy threshold for silence
+    min_speech_s  : minimum speech segment duration (s) to keep
 
     Returns
     -------
     List of {"start": float, "end": float} dicts in seconds.
     """
+    if vad_instance is None:
+        vad_instance = init_vad(vad_type)
+
     audio, sample_rate = sf.read(audio_path, dtype="float32", always_2d=False)
     audio = np.asarray(audio, dtype=np.float32)
 
     if vad_type == "simple":
         return _energy_vad(audio, sample_rate, silence_gap_s, silence_thresh, min_speech_s)
     elif vad_type == "silero":
-        return _silero_vad(audio, sample_rate, min_speech_s)
+        model, get_speech_timestamps = vad_instance
+        return _silero_vad(audio, sample_rate, min_speech_s, model, get_speech_timestamps)
     elif vad_type == "ten-vad":
-        return _ten_vad(audio, sample_rate, min_speech_s)
+        TenVad = vad_instance
+        return _ten_vad(audio, sample_rate, min_speech_s, TenVad)
     else:
         raise ValueError(f"Unknown vad_type: {vad_type!r}. Choose from 'simple', 'silero', 'ten-vad'.")
 
@@ -114,8 +158,10 @@ def _silero_vad(
     audio: np.ndarray,
     sample_rate: int,
     min_speech_s: float,
+    model,
+    get_speech_timestamps,
 ) -> List[Dict[str, float]]:
-    """Silero VAD. Resamples to 16kHz if needed."""
+    """Silero VAD. Resamples to 16kHz if needed. Uses pre-loaded model."""
     import torch
 
     target_sr = 16000
@@ -129,14 +175,6 @@ def _silero_vad(
         audio = np.interp(x_new, x_old, audio).astype(np.float32)
     else:
         audio = audio.astype(np.float32)
-
-    model, utils = torch.hub.load(
-        repo_or_dir="snakers4/silero-vad",
-        model="silero_vad",
-        force_reload=False,
-        trust_repo=True,
-    )
-    get_speech_timestamps = utils[0]
 
     wav_tensor = torch.from_numpy(audio)
     speech_timestamps = get_speech_timestamps(
@@ -154,17 +192,14 @@ def _ten_vad(
     audio: np.ndarray,
     sample_rate: int,
     min_speech_s: float,
+    TenVad,
 ) -> List[Dict[str, float]]:
     """
     TEN VAD (https://github.com/TEN-framework/ten-vad).
 
-    Install: pip install -U git+https://github.com/TEN-framework/ten-vad.git
-
     Processes audio frame-by-frame at 16kHz with hop_size=256 (16ms/frame).
-    Accumulates speech frames (flag==1) into segments.
+    A fresh TenVad instance is created per call to reset internal state.
     """
-    from ten_vad import TenVad
-
     target_sr = 16000
     hop_size = 256  # 16ms at 16kHz
 

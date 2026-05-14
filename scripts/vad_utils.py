@@ -37,14 +37,23 @@ def init_vad(vad_type: str = "simple", vad_model_path: Optional[str] = None) -> 
     if vad_type == "simple":
         return None
     elif vad_type == "silero":
-        import torch
-        model, utils = torch.hub.load(
-            repo_or_dir="snakers4/silero-vad",
-            model="silero_vad",
-            force_reload=False,
-            trust_repo=True,
-        )
-        return (model, utils[0])  # (model, get_speech_timestamps)
+        # Prefer the silero_vad pip package (has bundled model, no network needed).
+        # Fall back to torch.hub if the package is not installed.
+        try:
+            from silero_vad import load_silero_vad, get_speech_timestamps as _gst
+            model = load_silero_vad(onnx=False)
+            return (model, _gst)
+        except ImportError:
+            import os
+            import torch
+            repo = os.path.expanduser(vad_model_path) if vad_model_path else "snakers4/silero-vad"
+            model, utils = torch.hub.load(
+                repo_or_dir=repo,
+                model="silero_vad",
+                force_reload=False,
+                trust_repo=True,
+            )
+            return (model, utils[0])  # (model, get_speech_timestamps)
     elif vad_type == "ten-vad":
         from ten_vad import TenVad
         return TenVad  # return the class; instance created per audio to reset internal state

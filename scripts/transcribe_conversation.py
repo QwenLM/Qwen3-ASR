@@ -2,7 +2,7 @@
 """
 Qwen3-ASR two-channel conversation transcription script (Transformers backend).
 Transcribes a stereo audio file by processing each channel independently:
-  1. Energy-based VAD splits each channel into utterance segments (no extra model needed).
+  1. VAD splits each channel into utterance segments.
   2. Each segment is transcribed separately (fast, no forced aligner required).
   3. All segments are merged and sorted by start time into a conversation JSON.
 
@@ -20,7 +20,8 @@ Usage:
   --silence-thresh/-st    RMS energy threshold for silence detection (default: 0.01)
   --min-speech/-ms        Min speech segment duration (s) to keep (default: 0.2)
   --channels/-c           Number of channels to process (default: 2)
-  --silero_vad            Use Silero VAD instead of energy-based VAD (default: False)
+  --vad                   VAD backend: simple / silero / ten-vad (default: simple)
+  --vad_model_path        Path to VAD model (reserved for future use)
 
 Output format:
   {
@@ -44,6 +45,7 @@ import soundfile as sf
 import torch
 
 from qwen_asr import Qwen3ASRModel
+from vad_utils import apply_vad
 
 
 _DTYPE_MAP = {
@@ -73,114 +75,11 @@ def parse_args() -> argparse.Namespace:
                         help="Min speech segment duration (s); shorter segments are discarded")
     parser.add_argument("--channels", "-c", type=int, default=2,
                         help="Number of channels to process")
-    parser.add_argument("--silero_vad", action="store_true", default=False,
-                        help="Use Silero VAD instead of energy-based VAD for speech segment detection")
+    parser.add_argument("--vad", default="simple", choices=["simple", "silero", "ten-vad"],
+                        help="VAD backend: simple (energy), silero, or ten-vad")
+    parser.add_argument("--vad_model_path", default=None,
+                        help="Path to VAD model (reserved for future use)")
     return parser.parse_args()
-
-
-def _energy_vad(audio: np.ndarray, sample_rate: int,
-                silence_gap_s: float,
-                silence_thresh: float,
-                min_speech_s: float,
-                frame_ms: int = 20) -> list:
-    """
-    Simple energy-based VAD.  Returns list of {"start": float, "end": float} dicts (seconds).
-
-    Algorithm:
-      - Compute per-frame RMS energy (frame = frame_ms ms).
-      - Frames below silence_thresh are "silent".
-      - A new segment starts when speech resumes after a silent gap >= silence_gap_s.
-      - Segments shorter than min_speech_s are dropped.
-    """
-    frame_size = max(1, int(sample_rate * frame_ms / 1000))
-    n_frames = (len(audio) + frame_size - 1) // frame_size
-
-    # RMS per frame
-    speech_mask = []
-    for i in range(n_frames):
-        frame = audio[i * frame_size: (i + 1) * frame_size].astype(np.float64)
-        rms = np.sqrt(np.mean(frame ** 2)) if len(frame) > 0 else 0.0
-        speech_mask.append(rms > silence_thresh)
-
-    min_silence_frames = max(1, int(silence_gap_s * 1000 / frame_ms))
-    min_speech_frames  = max(1, int(min_speech_s  * 1000 / frame_ms))
-
-    segments = []
-    in_speech = False
-    start_frame = 0
-    silence_streak = 0
-
-    for i, is_speech in enumerate(speech_mask):
-        if is_speech:
-            if not in_speech:
-                start_frame = i
-                in_speech = True
-            silence_streak = 0
-        else:
-            if in_speech:
-                silence_streak += 1
-                if silence_streak >= min_silence_frames:
-                    end_frame = i - silence_streak + 1
-                    if (end_frame - start_frame) >= min_speech_frames:
-                        segments.append({
-                            "start": start_frame * frame_ms / 1000,
-                            "end":   end_frame   * frame_ms / 1000,
-                        })
-                    in_speech = False
-                    silence_streak = 0
-
-    # flush last segment
-    if in_speech:
-        end_frame = n_frames
-        if (end_frame - start_frame) >= min_speech_frames:
-            segments.append({
-                "start": start_frame * frame_ms / 1000,
-                "end":   len(audio) / sample_rate,
-            })
-
-    return segments
-
-
-def _silero_vad(audio: np.ndarray, sample_rate: int, min_speech_s: float) -> list:
-    """
-    Silero VAD-based speech segment detection.
-    Returns list of {"start": float, "end": float} dicts (seconds).
-
-    Requires: pip install silero-vad  (or torch.hub will auto-download on first run)
-    Silero VAD only supports 8000 or 16000 Hz; audio is resampled if needed.
-    """
-    target_sr = 16000
-
-    # Resample to 16kHz if needed (simple linear interpolation)
-    if sample_rate != target_sr:
-        dur = len(audio) / float(sample_rate)
-        n_new = int(round(dur * target_sr))
-        if n_new <= 0:
-            return []
-        x_old = np.linspace(0.0, dur, num=len(audio), endpoint=False)
-        x_new = np.linspace(0.0, dur, num=n_new, endpoint=False)
-        audio = np.interp(x_new, x_old, audio).astype(np.float32)
-    else:
-        audio = audio.astype(np.float32)
-
-    model, utils = torch.hub.load(
-        repo_or_dir="snakers4/silero-vad",
-        model="silero_vad",
-        force_reload=False,
-        trust_repo=True,
-    )
-    get_speech_timestamps = utils[0]
-
-    wav_tensor = torch.from_numpy(audio)
-    speech_timestamps = get_speech_timestamps(
-        wav_tensor,
-        model,
-        sampling_rate=target_sr,
-        min_speech_duration_ms=int(min_speech_s * 1000),
-        return_seconds=True,
-    )
-
-    return [{"start": t["start"], "end": t["end"]} for t in speech_timestamps]
 
 
 def main() -> None:
@@ -203,8 +102,8 @@ def main() -> None:
     dtype = _DTYPE_MAP[args.dtype]
     print(f"[config] model:         {args.model_path}")
     print(f"[config] device:        {args.device}  dtype: {args.dtype}")
-    print(f"[config] vad:           {'silero' if args.silero_vad else 'energy'}")
-    if not args.silero_vad:
+    print(f"[config] vad:           {args.vad}")
+    if args.vad == "simple":
         print(f"[config] silence_gap:   {args.silence_gap}s")
         print(f"[config] silence_thresh:{args.silence_thresh}")
     print(f"[config] min_speech:    {args.min_speech}s")
@@ -229,20 +128,20 @@ def main() -> None:
         for ch in range(channels_to_process):
             channel_audio = audio_data[:, ch]
 
+            # Write channel audio to a temp WAV for apply_vad()
+            tmp_ch_wav = os.path.join(tmpdir, f"ch{ch}_full.wav")
+            sf.write(tmp_ch_wav, channel_audio, sample_rate)
+
             # VAD: find speech segments for this channel
-            if args.silero_vad:
-                segments = _silero_vad(
-                    channel_audio, sample_rate,
-                    min_speech_s=args.min_speech,
-                )
-            else:
-                segments = _energy_vad(
-                    channel_audio, sample_rate,
-                    silence_gap_s=args.silence_gap,
-                    silence_thresh=args.silence_thresh,
-                    min_speech_s=args.min_speech,
-                )
-            print(f"\n[channel {ch}] {len(segments)} segment(s) detected by {'silero' if args.silero_vad else 'energy'} VAD")
+            segments = apply_vad(
+                tmp_ch_wav,
+                vad_type=args.vad,
+                vad_model_path=args.vad_model_path,
+                silence_gap_s=args.silence_gap,
+                silence_thresh=args.silence_thresh,
+                min_speech_s=args.min_speech,
+            )
+            print(f"\n[channel {ch}] {len(segments)} segment(s) detected by {args.vad} VAD")
 
             if not segments:
                 print(f"[channel {ch}] no speech detected, skipping")
@@ -285,8 +184,7 @@ def main() -> None:
         "source":        args.input,
         "filename":      os.path.basename(args.input),
         "channels":      channels_to_process,
-        "silence_gap":   args.silence_gap,
-        "silence_thresh": args.silence_thresh,
+        "vad":           args.vad,
         "conversations": all_utterances,
     }
 

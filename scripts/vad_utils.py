@@ -98,7 +98,7 @@ def apply_vad(
         return _silero_vad(audio, sample_rate, min_speech_s, model, get_speech_timestamps)
     elif vad_type == "ten-vad":
         TenVad = vad_instance
-        return _ten_vad(audio, sample_rate, min_speech_s, TenVad)
+        return _ten_vad(audio, sample_rate, min_speech_s, TenVad, silence_gap_s)
     else:
         raise ValueError(f"Unknown vad_type: {vad_type!r}. Choose from 'simple', 'silero', 'ten-vad'.")
 
@@ -202,12 +202,15 @@ def _ten_vad(
     sample_rate: int,
     min_speech_s: float,
     TenVad,
+    silence_gap_s: float = 0.5,
 ) -> List[Dict[str, float]]:
     """
     TEN VAD (https://github.com/TEN-framework/ten-vad).
 
     Processes audio frame-by-frame at 16kHz with hop_size=256 (16ms/frame).
     A fresh TenVad instance is created per call to reset internal state.
+    Uses a silence_gap_s tolerance window (like energy VAD) so that brief
+    pauses within a sentence don't split it into separate segments.
     """
     target_sr = 16000
     hop_size = 256  # 16ms at 16kHz
@@ -231,11 +234,14 @@ def _ten_vad(
     n_frames = len(audio_int16) // hop_size
     frame_dur_s = hop_size / target_sr  # 0.016s per frame
 
+    min_speech_frames  = max(1, int(min_speech_s  / frame_dur_s))
+    min_silence_frames = max(1, int(silence_gap_s / frame_dur_s))
+
     segments = []
     in_speech = False
     speech_start_s = 0.0
-    min_speech_frames = max(1, int(min_speech_s / frame_dur_s))
     speech_frame_count = 0
+    silence_streak = 0
 
     for i in range(n_frames):
         frame = audio_int16[i * hop_size: (i + 1) * hop_size]
@@ -248,15 +254,20 @@ def _ten_vad(
                 in_speech = True
                 speech_frame_count = 0
             speech_frame_count += 1
+            silence_streak = 0
         else:
             if in_speech:
-                if speech_frame_count >= min_speech_frames:
-                    segments.append({
-                        "start": speech_start_s,
-                        "end":   t,
-                    })
-                in_speech = False
-                speech_frame_count = 0
+                silence_streak += 1
+                if silence_streak >= min_silence_frames:
+                    end_t = t - silence_streak * frame_dur_s
+                    if speech_frame_count >= min_speech_frames:
+                        segments.append({
+                            "start": speech_start_s,
+                            "end":   end_t,
+                        })
+                    in_speech = False
+                    speech_frame_count = 0
+                    silence_streak = 0
 
     # flush last segment
     if in_speech and speech_frame_count >= min_speech_frames:

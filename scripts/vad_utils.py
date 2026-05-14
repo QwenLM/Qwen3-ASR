@@ -4,7 +4,7 @@ VAD (Voice Activity Detection) utilities for Qwen3-ASR scripts.
 
 Provides a unified interface supporting three backends:
   - 'simple'  : Energy-based VAD (no extra dependencies)
-  - 'silero'  : Silero VAD (requires torch.hub / silero-vad package)
+  - 'silero'  : Silero VAD (requires: pip install silero_vad)
   - 'ten-vad' : TEN VAD (requires: pip install git+https://github.com/TEN-framework/ten-vad.git)
 
 Typical usage (one-time init, then apply per audio file):
@@ -77,7 +77,7 @@ def apply_vad(
     audio_path    : path to a mono WAV file (any sample rate)
     vad_type      : 'simple' | 'silero' | 'ten-vad'
     vad_instance  : pre-initialized VAD object from init_vad(); if None, initializes on the fly
-    silence_gap_s : (simple) min silence gap (s) to split segments
+    silence_gap_s : (simple/ten-vad) min silence gap (s) to split segments
     silence_thresh: (simple) RMS energy threshold for silence
     min_speech_s  : minimum speech segment duration (s) to keep
 

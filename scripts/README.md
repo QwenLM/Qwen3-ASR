@@ -25,8 +25,9 @@ pip install silero_vad
 # TEN VAD (low-latency streaming neural VAD)
 pip install git+https://github.com/TEN-framework/ten-vad.git
 
-# FSMN VAD (FSMN-based neural VAD)
-pip install fsmnvad
+# FSMN VAD
+git clone https://github.com/lovemefan/fsmn-vad
+cd fsmn-vad && python setup.py install
 ```
 
 ---
@@ -164,7 +165,7 @@ python scripts/transcribe_conversation.py -i <stereo_audio> [OPTIONS]
 | `simple` | none | Energy-based RMS VAD |
 | `silero` | `pip install silero_vad` | Neural VAD; more accurate |
 | `ten-vad` | `pip install git+https://github.com/TEN-framework/ten-vad.git` | Low-latency neural VAD |
-| `fsmn-vad` | `pip install fsmnvad` | FSMN-based neural VAD |
+| `fsmn-vad` | see below | FSMN-based neural VAD |
 
 **Output format:**
 ```json
@@ -203,7 +204,7 @@ Shared VAD module used by `transcribe_conversation.py`. Provides a unified inter
 | `simple` | none | Energy-based RMS VAD. Splits on frames where RMS energy falls below `--silence-thresh`. Fast, no model needed. |
 | `silero` | `pip install silero_vad` | Neural VAD using Silero model (bundled in pip package). More accurate, especially for noisy audio. Resamples to 16kHz internally. |
 | `ten-vad` | `pip install git+https://github.com/TEN-framework/ten-vad.git` | Low-latency streaming neural VAD. Processes audio frame-by-frame at 16kHz with 16ms hop. Uses same `--silence-gap` tolerance window as `simple`. |
-| `fsmn-vad` | `pip install fsmnvad` | FSMN-based neural VAD. Requires 16kHz mono WAV (auto-resampled). Returns millisecond-precise segments. |
+| `fsmn-vad` | see install below | FSMN-based neural VAD. Requires 16kHz mono WAV (auto-resampled). Returns millisecond-precise segments. |
 
 Can also be imported directly:
 

@@ -26,6 +26,7 @@ pip install silero_vad
 pip install git+https://github.com/TEN-framework/ten-vad.git
 
 # FSMN VAD
+pip install onnxruntime kaldi-native-fbank
 git clone https://github.com/lovemefan/fsmn-vad
 cd fsmn-vad && python setup.py install
 ```

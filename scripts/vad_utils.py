@@ -6,7 +6,7 @@ Provides a unified interface supporting four backends:
   - 'simple'   : Energy-based VAD (no extra dependencies)
   - 'silero'   : Silero VAD (requires: pip install silero_vad)
   - 'ten-vad'  : TEN VAD (requires: pip install git+https://github.com/TEN-framework/ten-vad.git)
-  - 'fsmn-vad' : FSMN VAD (requires: git clone https://github.com/lovemefan/fsmn-vad && cd fsmn-vad && python setup.py install)
+  - 'fsmn-vad' : FSMN VAD (requires: pip install onnxruntime kaldi-native-fbank && git clone https://github.com/lovemefan/fsmn-vad && cd fsmn-vad && python setup.py install)
 
 Typical usage (one-time init, then apply per audio file):
 

@@ -2,10 +2,11 @@
 """
 VAD (Voice Activity Detection) utilities for Qwen3-ASR scripts.
 
-Provides a unified interface supporting three backends:
-  - 'simple'  : Energy-based VAD (no extra dependencies)
-  - 'silero'  : Silero VAD (requires: pip install silero_vad)
-  - 'ten-vad' : TEN VAD (requires: pip install git+https://github.com/TEN-framework/ten-vad.git)
+Provides a unified interface supporting four backends:
+  - 'simple'   : Energy-based VAD (no extra dependencies)
+  - 'silero'   : Silero VAD (requires: pip install silero_vad)
+  - 'ten-vad'  : TEN VAD (requires: pip install git+https://github.com/TEN-framework/ten-vad.git)
+  - 'fsmn-vad' : FSMN VAD (requires: pip install fsmnvad)
 
 Typical usage (one-time init, then apply per audio file):
 
@@ -25,14 +26,15 @@ def init_vad(vad_type: str = "simple", vad_model_path: Optional[str] = None) -> 
 
     Parameters
     ----------
-    vad_type       : 'simple' | 'silero' | 'ten-vad'
+    vad_type       : 'simple' | 'silero' | 'ten-vad' | 'fsmn-vad'
     vad_model_path : reserved for future model-based backends
 
     Returns
     -------
-    - 'simple'  : None  (no state needed)
-    - 'silero'  : (model, get_speech_timestamps) tuple
-    - 'ten-vad' : ten_vad.TenVad class (instance created fresh per audio to reset state)
+    - 'simple'   : None  (no state needed)
+    - 'silero'   : (model, get_speech_timestamps) tuple
+    - 'ten-vad'  : ten_vad.TenVad class (instance created fresh per audio to reset state)
+    - 'fsmn-vad' : FSMNVad instance
     """
     if vad_type == "simple":
         return None
@@ -57,8 +59,11 @@ def init_vad(vad_type: str = "simple", vad_model_path: Optional[str] = None) -> 
     elif vad_type == "ten-vad":
         from ten_vad import TenVad
         return TenVad  # return the class; instance created per audio to reset internal state
+    elif vad_type == "fsmn-vad":
+        from fsmnvad import FSMNVad
+        return FSMNVad()
     else:
-        raise ValueError(f"Unknown vad_type: {vad_type!r}. Choose from 'simple', 'silero', 'ten-vad'.")
+        raise ValueError(f"Unknown vad_type: {vad_type!r}. Choose from 'simple', 'silero', 'ten-vad', 'fsmn-vad'.")
 
 
 def apply_vad(
@@ -75,7 +80,7 @@ def apply_vad(
     Parameters
     ----------
     audio_path    : path to a mono WAV file (any sample rate)
-    vad_type      : 'simple' | 'silero' | 'ten-vad'
+    vad_type      : 'simple' | 'silero' | 'ten-vad' | 'fsmn-vad'
     vad_instance  : pre-initialized VAD object from init_vad(); if None, initializes on the fly
     silence_gap_s : (simple/ten-vad) min silence gap (s) to split segments
     silence_thresh: (simple) RMS energy threshold for silence
@@ -99,8 +104,10 @@ def apply_vad(
     elif vad_type == "ten-vad":
         TenVad = vad_instance
         return _ten_vad(audio, sample_rate, min_speech_s, TenVad, silence_gap_s)
+    elif vad_type == "fsmn-vad":
+        return _fsmn_vad(audio_path, min_speech_s, vad_instance)
     else:
-        raise ValueError(f"Unknown vad_type: {vad_type!r}. Choose from 'simple', 'silero', 'ten-vad'.")
+        raise ValueError(f"Unknown vad_type: {vad_type!r}. Choose from 'simple', 'silero', 'ten-vad', 'fsmn-vad'.")
 
 
 # ---------------------------------------------------------------------------
@@ -277,3 +284,50 @@ def _ten_vad(
         })
 
     return segments
+
+
+def _fsmn_vad(
+    audio_path: str,
+    min_speech_s: float,
+    vad_instance,
+) -> List[Dict[str, float]]:
+    """
+    FSMN VAD (https://github.com/alibaba-damo-academy/FunASR).
+
+    segments_offline() requires a 16kHz mono WAV file and returns
+    [[start_ms, end_ms], ...] in milliseconds.
+    """
+    from pathlib import Path
+    import tempfile
+    import soundfile as sf2
+
+    audio_path_obj = Path(audio_path)
+
+    # FSMN VAD requires 16kHz mono WAV; resample/convert if needed
+    audio, sr = sf.read(audio_path, dtype="float32", always_2d=False)
+    need_resample = (sr != 16000)
+    need_mono = (audio.ndim == 2)
+
+    if need_resample or need_mono:
+        if need_mono:
+            audio = audio.mean(axis=1)
+        if need_resample:
+            dur = len(audio) / float(sr)
+            n_new = int(round(dur * 16000))
+            if n_new <= 0:
+                return []
+            x_old = np.linspace(0.0, dur, num=len(audio), endpoint=False)
+            x_new = np.linspace(0.0, dur, num=n_new, endpoint=False)
+            audio = np.interp(x_new, x_old, audio).astype(np.float32)
+        tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+        sf2.write(tmp.name, audio, 16000)
+        audio_path_obj = Path(tmp.name)
+
+    raw = vad_instance.segments_offline(audio_path_obj)  # [[start_ms, end_ms], ...]
+
+    min_speech_ms = min_speech_s * 1000
+    return [
+        {"start": seg[0] / 1000.0, "end": seg[1] / 1000.0}
+        for seg in raw
+        if (seg[1] - seg[0]) >= min_speech_ms
+    ]

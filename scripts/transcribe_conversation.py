@@ -74,8 +74,8 @@ def parse_args() -> argparse.Namespace:
                         help="Min speech segment duration (s); shorter segments are discarded")
     parser.add_argument("--channels", "-c", type=int, default=2,
                         help="Number of channels to process")
-    parser.add_argument("--vad", default="simple", choices=["simple", "silero", "ten-vad"],
-                        help="VAD backend: simple (energy), silero, or ten-vad")
+    parser.add_argument("--vad", default="simple", choices=["simple", "silero", "ten-vad", "fsmn-vad"],
+                        help="VAD backend: simple (energy), silero, ten-vad, or fsmn-vad")
     parser.add_argument("--vad_model_path", default=None,
                         help="Path to VAD model (reserved for future use)")
     return parser.parse_args()

@@ -52,6 +52,7 @@ python scripts/transcribe.py -i <audio_file> [OPTIONS]
 | `--dtype` | `bfloat16` | Model dtype: `bfloat16` / `float16` / `float32` |
 | `--word-timestamps / -wts` | off | Enable word-level timestamps |
 | `--silence-gap / -sg` | `0.5` | Silence gap (s) to split word timestamps into segments; `0` = no split |
+| `--max-new-tokens` | `1024` | Max new tokens for generation |
 | `--seperate_channel / -sc` | off | Split multi-channel audio; transcribe each channel separately |
 
 ### `transcribe_vllm.py` — vLLM backend
@@ -104,6 +105,7 @@ python scripts/batch_transcribe.py -i <audio_dir> [OPTIONS]
 | `--word-timestamps / -wts` | off | Enable word-level timestamps |
 | `--device / -d` | `cuda:0` | Inference device |
 | `--dtype` | `bfloat16` | Model dtype |
+| `--max-new-tokens` | `1024` | Max new tokens for generation |
 | `--batch-size / -bs` | `1` | Inference batch size |
 | `--seperate_channel / -sc` | off | Split multi-channel audio; transcribe each channel separately |
 

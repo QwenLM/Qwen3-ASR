@@ -16,6 +16,7 @@ Usage:
   --device/-d        Inference device, e.g. "mps", "cuda:0", "cpu" (cuda:0)
   --dtype            Model dtype: bfloat16 / float16 / float32 (default: bfloat16)
   --batch-size/-bs   Inference batch size (default: 1)
+  --max-new-tokens   Max new tokens for generation (default: 1024)
   --seperate_channel/-sc  Split multi-channel audio, transcribe each channel separately
 """
 
@@ -263,6 +264,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", "-d", default="cuda:0", help='Inference device, e.g. "mps", "cuda:0", "cpu"')
     parser.add_argument("--dtype", default="bfloat16", choices=list(_DTYPE_MAP.keys()), help="Model dtype")
     parser.add_argument("--batch-size", "-bs", type=int, default=1, dest="batch_size", help="Inference batch size")
+    parser.add_argument("--max-new-tokens", type=int, default=1024, dest="max_new_tokens", help="Max new tokens for generation")
     parser.add_argument("--seperate_channel", "-sc", action="store_true", default=False,
                         help="Split multi-channel audio and transcribe each channel separately")
     return parser.parse_args()
@@ -298,7 +300,7 @@ def main() -> None:
         forced_aligner=args.aligner_path,
         forced_aligner_kwargs=dict(dtype=dtype, device_map=args.device),
         max_inference_batch_size=32,
-        max_new_tokens=256,
+        max_new_tokens=args.max_new_tokens,
     )
     model_load_s = time.perf_counter() - t0
     print(f"[timing] model load: {model_load_s:.3f}s")

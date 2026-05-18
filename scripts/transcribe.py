@@ -15,6 +15,7 @@ Usage:
   --silence-gap/-sg       Silence gap (s) to split word-level timestamps into segments (default: 0.5; 0 = no split)
   --device/-d           Inference device, e.g. "mps", "cuda:0", "cpu" (default: cuda:0)
   --dtype               Model dtype: bfloat16 / float16 / float32 (default: bfloat16)
+  --max-new-tokens        Max new tokens for generation (default: 1024)
   --seperate_channel/-sc  Split multi-channel audio and transcribe each channel separately
 
 Output format (json):
@@ -142,6 +143,7 @@ def parse_args() -> argparse.Namespace:
                         help="Silence gap (s) to split word-level timestamps into segments; 0 = no split")
     parser.add_argument("--device", "-d", default="cuda:0", help='Inference device, e.g. "mps", "cuda:0", "cpu"')
     parser.add_argument("--dtype", default="bfloat16", choices=list(_DTYPE_MAP.keys()), help="Model dtype")
+    parser.add_argument("--max-new-tokens", type=int, default=1024, dest="max_new_tokens", help="Max new tokens for generation")
     parser.add_argument("--seperate_channel", "-sc", action="store_true", default=False,
                         help="Split multi-channel audio and transcribe each channel separately")
     return parser.parse_args()
@@ -204,7 +206,7 @@ def main() -> None:
         forced_aligner=args.aligner_path,
         forced_aligner_kwargs=dict(dtype=dtype, device_map=args.device),
         max_inference_batch_size=32,
-        max_new_tokens=256,
+        max_new_tokens=args.max_new_tokens,
     )
     model_load_s = time.perf_counter() - t0
     logger.info("[timing] model loaded: %.3fs", model_load_s)

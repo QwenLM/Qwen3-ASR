@@ -51,6 +51,7 @@ _TSV_FIELDS = [
     "rtf",           # Real-Time Factor = transcribe_s / audio_dur_s
     "rtfx",          # Inverse RTF = audio_dur_s / transcribe_s
     "align_rtf",     # Align RTF = align_s / audio_dur_s (empty when timestamps disabled)
+    "align_rtfx",    # Inverse Align RTF = audio_dur_s / align_s (empty when timestamps disabled)
     "language",      # detected language
     "text",          # transcription text
     "time_stamps",   # word-level timestamps as JSON (empty when timestamps disabled)
@@ -89,6 +90,12 @@ class TimedResult:
     def align_rtf(self) -> Optional[float]:
         if self.align_s is not None and self.audio_dur_s > 0:
             return self.align_s / self.audio_dur_s
+        return None
+
+    @property
+    def align_rtfx(self) -> Optional[float]:
+        if self.align_s is not None and self.audio_dur_s > 0 and self.align_s > 0:
+            return self.audio_dur_s / self.align_s
         return None
 
 
@@ -167,6 +174,7 @@ def _write_tsv(output_path: str, rows: List[TimedResult]) -> None:
                 "rtf":          f"{row.rtf:.4f}" if row.rtf is not None else "",
                 "rtfx":         f"{row.rtfx:.2f}" if row.rtfx is not None else "",
                 "align_rtf":    f"{row.align_rtf:.4f}" if row.align_rtf is not None else "",
+                "align_rtfx":   f"{row.align_rtfx:.2f}" if row.align_rtfx is not None else "",
                 "language":     row.language or "",
                 "text":         row.text,
                 "time_stamps":  ts_json,
@@ -198,6 +206,7 @@ def _write_summary(output_path: str, rows: List[TimedResult], args) -> None:
         "overall_rtfx":       round(total_audio / total_transcribe, 2) if total_transcribe > 0 else None,
         "total_align_s":      round(total_align, 3) if total_align is not None else None,
         "overall_align_rtf":  round(total_align / total_audio, 4) if total_align and total_audio > 0 else None,
+        "overall_align_rtfx": round(total_audio / total_align, 2) if total_align and total_audio > 0 else None,
     }
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(summary, f, ensure_ascii=False, indent=2)

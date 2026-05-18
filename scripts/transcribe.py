@@ -95,6 +95,7 @@ def _build_output(args, audio_path, r, audio_dur_s, model_load_s, transcribe_s):
         "rtf":           round(rtf, 4) if rtf is not None else None,
         "rtfx":          round(1.0 / rtf, 2) if rtf else None,
         "align_rtf":     round(align_rtf, 4) if align_rtf is not None else None,
+        "align_rtfx":    round(1.0 / align_rtf, 2) if align_rtf else None,
         "text":          r.text,
         "time_stamps":   (
             [{"text": ts.text, "start": ts.start_time, "end": ts.end_time}

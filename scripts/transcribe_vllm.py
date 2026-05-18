@@ -117,6 +117,7 @@ def main() -> None:
             "rtf":           round(rtf, 4) if rtf is not None else None,
             "rtfx":          round(1.0 / rtf, 2) if rtf else None,
             "align_rtf":     round(align_rtf, 4) if align_rtf is not None else None,
+            "align_rtfx":    round(1.0 / align_rtf, 2) if align_rtf else None,
             "time_stamps":   (
                 [{"text": ts.text, "start": ts.start_time, "end": ts.end_time}
                  for ts in r.time_stamps]

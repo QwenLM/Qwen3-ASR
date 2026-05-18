@@ -46,7 +46,8 @@ def _timed(label: str, fn, *args, audio_duration_s: float = 0.0, **kwargs):
     print(f"[timing] {label}: {elapsed:.3f}s")
     if audio_duration_s > 0:
         rtf = elapsed / audio_duration_s
-        print(f"[RTF]    RTF={rtf:.4f}, which means it can transcribe {1/rtf:.2f} seconds audio in 1 second")
+        rtfx = audio_duration_s / elapsed
+        print(f"[RTF]    RTF={rtf:.4f}  RTFx={rtfx:.2f}x")
     return result, elapsed
 
 
@@ -112,6 +113,7 @@ def main() -> None:
             "transcribe_s":  round(transcribe_s, 3),
             "align_s":       round(align_s, 3) if align_s is not None else None,
             "rtf":           round(rtf, 4) if rtf is not None else None,
+            "rtfx":          round(1.0 / rtf, 2) if rtf else None,
             "align_rtf":     round(align_rtf, 4) if align_rtf is not None else None,
             "time_stamps":   (
                 [{"text": ts.text, "start": ts.start_time, "end": ts.end_time}

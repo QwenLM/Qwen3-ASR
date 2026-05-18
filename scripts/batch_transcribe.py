@@ -49,6 +49,7 @@ _TSV_FIELDS = [
     "transcribe_s",  # transcription time (seconds)
     "align_s",       # alignment time (seconds; empty when timestamps disabled)
     "rtf",           # Real-Time Factor = transcribe_s / audio_dur_s
+    "rtfx",          # Inverse RTF = audio_dur_s / transcribe_s
     "align_rtf",     # Align RTF = align_s / audio_dur_s (empty when timestamps disabled)
     "language",      # detected language
     "text",          # transcription text
@@ -76,6 +77,12 @@ class TimedResult:
     def rtf(self) -> Optional[float]:
         if self.audio_dur_s > 0:
             return self.transcribe_s / self.audio_dur_s
+        return None
+
+    @property
+    def rtfx(self) -> Optional[float]:
+        if self.audio_dur_s > 0 and self.transcribe_s > 0:
+            return self.audio_dur_s / self.transcribe_s
         return None
 
     @property
@@ -115,7 +122,8 @@ def _timed(label: str, fn, *args, audio_duration_s: float = 0.0, **kwargs):
     print(f"[timing] {label}: {elapsed:.3f}s")
     if audio_duration_s > 0:
         rtf = elapsed / audio_duration_s
-        print(f"[RTF]    RTF={rtf:.4f}, which means it can transcribe {1/rtf:.2f} seconds audio in 1 second")
+        rtfx = audio_duration_s / elapsed
+        print(f"[RTF]    RTF={rtf:.4f}  RTFx={rtfx:.2f}x")
     return result, elapsed
 
 
@@ -157,6 +165,7 @@ def _write_tsv(output_path: str, rows: List[TimedResult]) -> None:
                 "transcribe_s": f"{row.transcribe_s:.3f}",
                 "align_s":      f"{row.align_s:.3f}" if row.align_s is not None else "",
                 "rtf":          f"{row.rtf:.4f}" if row.rtf is not None else "",
+                "rtfx":         f"{row.rtfx:.2f}" if row.rtfx is not None else "",
                 "align_rtf":    f"{row.align_rtf:.4f}" if row.align_rtf is not None else "",
                 "language":     row.language or "",
                 "text":         row.text,
@@ -186,6 +195,7 @@ def _write_summary(output_path: str, rows: List[TimedResult], args) -> None:
         "total_audio_dur_s":  round(total_audio, 3),
         "total_transcribe_s": round(total_transcribe, 3),
         "overall_rtf":        round(total_transcribe / total_audio, 4) if total_audio > 0 else None,
+        "overall_rtfx":       round(total_audio / total_transcribe, 2) if total_transcribe > 0 else None,
         "total_align_s":      round(total_align, 3) if total_align is not None else None,
         "overall_align_rtf":  round(total_align / total_audio, 4) if total_align and total_audio > 0 else None,
     }

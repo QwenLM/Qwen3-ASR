@@ -48,6 +48,7 @@ _TSV_FIELDS = [
     "model_load_s",  # model load time (seconds)
     "transcribe_s",  # transcription time (seconds)
     "rtf",           # Real-Time Factor = transcribe_s / audio_dur_s
+    "rtfx",          # Inverse RTF = audio_dur_s / transcribe_s
     "language",      # detected language
     "text",          # transcription text
     "total_calls",   # number of streaming calls
@@ -73,6 +74,12 @@ class StreamingResult:
     def rtf(self) -> Optional[float]:
         if self.audio_dur_s > 0:
             return self.transcribe_s / self.audio_dur_s
+        return None
+
+    @property
+    def rtfx(self) -> Optional[float]:
+        if self.audio_dur_s > 0 and self.transcribe_s > 0:
+            return self.audio_dur_s / self.transcribe_s
         return None
 
 
@@ -122,6 +129,7 @@ def _write_tsv(output_path: str, rows: List[StreamingResult]) -> None:
                 "model_load_s": f"{row.model_load_s:.3f}",
                 "transcribe_s": f"{row.transcribe_s:.3f}",
                 "rtf":          f"{row.rtf:.4f}" if row.rtf is not None else "",
+                "rtfx":         f"{row.rtfx:.2f}" if row.rtfx is not None else "",
                 "language":     row.language or "",
                 "text":         row.text,
                 "total_calls":  str(row.total_calls),
@@ -147,6 +155,7 @@ def _write_summary(output_path: str, rows: List[StreamingResult], args) -> None:
         "total_audio_dur_s":  round(total_audio, 3),
         "total_transcribe_s": round(total_transcribe, 3),
         "overall_rtf":        round(total_transcribe / total_audio, 4) if total_audio > 0 else None,
+        "overall_rtfx":       round(total_audio / total_transcribe, 2) if total_transcribe > 0 else None,
     }
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(summary, f, ensure_ascii=False, indent=2)
@@ -252,7 +261,8 @@ def main() -> None:
             print(f"[timing] transcribe: {transcribe_s:.3f}s")
             if audio_dur_s > 0:
                 rtf = transcribe_s / audio_dur_s
-                print(f"[RTF]    RTF={rtf:.4f}, which means it can transcribe {1/rtf:.2f} seconds audio in 1 second")
+                rtfx = audio_dur_s / transcribe_s
+                print(f"[RTF]    RTF={rtf:.4f}  RTFx={rtfx:.2f}x")
 
             all_rows.append(StreamingResult(
                 source=orig_path,

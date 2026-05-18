@@ -103,7 +103,8 @@ def _stream_transcribe(asr, wav16k, args, model_load_s, audio_path, output_path)
     print(f"[timing] transcribe: {transcribe_s:.3f}s")
     if audio_dur_s > 0:
         rtf = transcribe_s / audio_dur_s
-        print(f"[RTF]    RTF={rtf:.4f}, which means it can transcribe {1/rtf:.2f} seconds audio in 1 second")
+        rtfx = audio_dur_s / transcribe_s
+        print(f"[RTF]    RTF={rtf:.4f}  RTFx={rtfx:.2f}x")
 
     output = {
         "source":        audio_path,
@@ -114,6 +115,7 @@ def _stream_transcribe(asr, wav16k, args, model_load_s, audio_path, output_path)
         "model_load_s":  round(model_load_s, 3),
         "transcribe_s":  round(transcribe_s, 3),
         "rtf":           round(transcribe_s / audio_dur_s, 4) if audio_dur_s > 0 else None,
+        "rtfx":          round(audio_dur_s / transcribe_s, 2) if audio_dur_s > 0 else None,
         "step_ms":       args.step_ms,
         "chunk_size_sec": args.chunk_size_sec,
         "total_calls":   call_id,

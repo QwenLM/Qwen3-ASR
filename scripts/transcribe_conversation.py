@@ -127,6 +127,7 @@ def main() -> None:
     print(f"[vad] initialized in {time.perf_counter() - t_vad:.3f}s")
 
     all_utterances = []
+    t_transcribe = time.perf_counter()
 
     with tempfile.TemporaryDirectory() as tmpdir:
         for ch in range(channels_to_process):
@@ -183,6 +184,13 @@ def main() -> None:
 
     # Sort by start time; break ties by channel index for determinism
     all_utterances.sort(key=lambda u: (u["start"], u["role"]))
+
+    transcribe_s = time.perf_counter() - t_transcribe
+    if total_dur_s > 0:
+        rtf = transcribe_s / total_dur_s
+        rtfx = total_dur_s / transcribe_s
+        print(f"[timing] transcribe total: {transcribe_s:.3f}s")
+        print(f"[RTF]    RTF={rtf:.4f}  RTFx={rtfx:.2f}x")
 
     output = {
         "source":        args.input,

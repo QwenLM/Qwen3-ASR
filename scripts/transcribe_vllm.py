@@ -161,7 +161,7 @@ def main() -> None:
             "align_rtf":     round(align_rtf, 4) if align_rtf is not None else None,
             "align_rtfx":    round(1.0 / align_rtf, 2) if align_rtf else None,
             "model_name":    model_name,
-            "vad_model":     "no_vad",
+            "vad_model":     "no-vad",
             "aligner_model": aligner_name,
             "language":      r.language,
             "text":          r.text,

@@ -52,7 +52,7 @@ _TSV_FIELDS = [
     "align_rtf",     # Align RTF = align_s / audio_dur_s (empty when timestamps disabled)
     "align_rtfx",    # Inverse Align RTF = audio_dur_s / align_s (empty when timestamps disabled)
     "model_name",    # ASR model name
-    "vad_model",     # VAD model name (no_vad when VAD disabled)
+    "vad_model",     # VAD model name (no-vad when VAD disabled)
     "aligner_model", # ForcedAligner model name
     "language",      # detected language
     "text",          # transcription text
@@ -76,7 +76,7 @@ class TimedResult:
     words: list = field(default_factory=list)
     channel: Optional[int] = None
     model_name: str = ""
-    vad_model: str = "no_vad"
+    vad_model: str = "no-vad"
     aligner_model: str = ""
 
     @property
@@ -347,7 +347,7 @@ def main() -> None:
             for tr, ch in zip(timed, batch_chs):
                 tr.channel = ch
                 tr.model_name = model_name
-                tr.vad_model = "no_vad"
+                tr.vad_model = "no-vad"
                 tr.aligner_model = aligner_name
             all_rows += timed
     finally:

@@ -148,6 +148,7 @@ python scripts/transcribe_conversation.py -i <stereo_audio> [OPTIONS]
 | `--silence-gap / -sg` | `0.5` | Min silence gap (s) to split utterances (`simple-vad` / `ten-vad`) |
 | `--silence-thresh / -st` | `0.01` | RMS energy threshold for silence (`simple-vad` only) |
 | `--min-speech / -ms` | `0.2` | Min speech segment duration (s) to keep |
+| `--max-new-tokens` | `256` | Max new tokens for generation per segment |
 
 **VAD backends:**
 

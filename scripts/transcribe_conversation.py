@@ -20,8 +20,9 @@ Usage:
   --silence-thresh/-st    RMS energy threshold for silence detection (default: 0.01)
   --min-speech/-ms        Min speech segment duration (s) to keep (default: 0.2)
   --channels/-c           Number of channels to process (default: 2)
-  --vad                   VAD backend: simple / silero / ten-vad / fsmn-vad (default: simple)
+  --vad                   VAD backend: simple-vad / silero-vad / ten-vad / fsmn-vad (default: simple-vad)
   --vad_model_path        Path to VAD model (reserved for future use)
+  --max-new-tokens        Max new tokens for generation per segment (default: 256)
 
 Output format:
   {
@@ -99,6 +100,8 @@ def parse_args() -> argparse.Namespace:
                         help="VAD backend: simple (energy), silero, ten-vad, or fsmn-vad")
     parser.add_argument("--vad_model_path", default=None,
                         help="Path to VAD model (reserved for future use)")
+    parser.add_argument("--max-new-tokens", type=int, default=256, dest="max_new_tokens",
+                        help="Max new tokens for generation per segment")
     
     args = parser.parse_args()
     if "fsmn" in args.vad:
@@ -148,7 +151,7 @@ def main() -> None:
         forced_aligner=args.aligner_path,
         forced_aligner_kwargs=dict(dtype=dtype, device_map=args.device),
         max_inference_batch_size=32,
-        max_new_tokens=256,
+        max_new_tokens=args.max_new_tokens,
     )
     logger.info("[timing] model loaded: %.3fs", time.perf_counter() - t0)
 

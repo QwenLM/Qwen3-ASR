@@ -1,6 +1,6 @@
 # coding=utf-8
 """
-Qwen3-ASR single-file streaming transcription script (Transformers backend).
+Qwen3-ASR single-file streaming transcription script (vLLM backend).
 Reads a local audio file and performs streaming inference, printing partial results
 as audio chunks are fed in. Final result is saved as JSON.
 
@@ -11,8 +11,7 @@ Usage:
   --input/-i              Audio file path (required)
   --output/-o             JSON output path (default: results/<input_basename>.<model_name>.no_vad.no_aligner.json)
   --language/-l           Force language, e.g. "Chinese", "English"; auto-detect if not set
-  --device/-d             Inference device, e.g. "mps", "cuda:0", "cpu" (default: cuda:0)
-  --dtype                 Model dtype: bfloat16 / float16 / float32 (default: bfloat16)
+  --gpu-memory-util/-gmu  vLLM GPU memory utilization (default: 0.8)
   --max-new-tokens        Max new tokens per streaming chunk (default: 32)
   --chunk-size-sec        Streaming chunk size in seconds (default: 2.0)
   --step-ms               Audio feed step in milliseconds (default: 1000)
@@ -44,6 +43,8 @@ Output format (json):
   }
 
 Note:
+  Requires vLLM extra:
+    pip install qwen-asr[vllm]
   Streaming does not support ForcedAligner (no word-level timestamps).
   align_rtf and align_rtfx are always null.
 """
@@ -56,16 +57,8 @@ import time
 
 import numpy as np
 import soundfile as sf
-import torch
 
 from qwen_asr import Qwen3ASRModel
-
-
-_DTYPE_MAP = {
-    "bfloat16": torch.bfloat16,
-    "float16":  torch.float16,
-    "float32":  torch.float32,
-}
 
 
 def _load_wav_16k(path: str) -> np.ndarray:
@@ -85,15 +78,14 @@ def _load_wav_16k(path: str) -> np.ndarray:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Qwen3-ASR single-file streaming transcription tool (Transformers backend)",
+        description="Qwen3-ASR single-file streaming transcription tool (vLLM backend)",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument("--model-path", "-mp", default="./checkpoints/Qwen3-ASR-0.6B", help="ASR model path")
     parser.add_argument("--input", "-i", required=True, help="Audio file path")
     parser.add_argument("--output", "-o", default=None, help="JSON output path (default: results/<input_basename>.<model_name>.no_vad.no_aligner.json)")
     parser.add_argument("--language", "-l", default=None, help='Force language, e.g. "Chinese", "English"')
-    parser.add_argument("--device", "-d", default="cuda:0", help='Inference device, e.g. "mps", "cuda:0", "cpu"')
-    parser.add_argument("--dtype", default="bfloat16", choices=list(_DTYPE_MAP.keys()), help="Model dtype")
+    parser.add_argument("--gpu-memory-util", "-gmu", type=float, default=0.8, dest="gpu_memory_util", help="vLLM GPU memory utilization")
     parser.add_argument("--max-new-tokens", type=int, default=32, dest="max_new_tokens", help="Max new tokens per streaming chunk")
     parser.add_argument("--chunk-size-sec", type=float, default=2.0, dest="chunk_size_sec", help="Streaming chunk size in seconds")
     parser.add_argument("--step-ms", type=int, default=1000, dest="step_ms", help="Audio feed step in milliseconds")
@@ -173,20 +165,17 @@ def main() -> None:
 
     basename = os.path.splitext(os.path.basename(args.input))[0]
     model_name = os.path.basename(os.path.normpath(args.model_path))
-    dtype = _DTYPE_MAP[args.dtype]
 
     print(f"[config] model:          {args.model_path}")
-    print(f"[config] device:         {args.device}  dtype: {args.dtype}")
+    print(f"[config] gpu_memory_util: {args.gpu_memory_util}")
     print(f"[config] chunk_size_sec: {args.chunk_size_sec}")
     print(f"[config] step_ms:        {args.step_ms}")
     print(f"[input]  {args.input}")
 
     t0 = time.perf_counter()
-    asr = Qwen3ASRModel.from_pretrained(
-        args.model_path,
-        dtype=dtype,
-        device_map=args.device,
-        max_inference_batch_size=32,
+    asr = Qwen3ASRModel.LLM(
+        model=args.model_path,
+        gpu_memory_utilization=args.gpu_memory_util,
         max_new_tokens=args.max_new_tokens,
     )
     model_load_s = time.perf_counter() - t0

@@ -3,8 +3,8 @@
 VAD (Voice Activity Detection) utilities for Qwen3-ASR scripts.
 
 Provides a unified interface supporting four backends:
-  - 'simple'   : Energy-based VAD (no extra dependencies)
-  - 'silero'   : Silero VAD (requires: pip install silero_vad)
+  - 'simple-vad'   : Energy-based VAD (no extra dependencies)
+  - 'silero-vad'   : Silero VAD (requires: pip install silero_vad)
   - 'ten-vad'  : TEN VAD (requires: pip install git+https://github.com/TEN-framework/ten-vad.git)
   - 'fsmn-vad' : FSMN VAD (requires: pip install onnxruntime kaldi-native-fbank && git clone https://github.com/lovemefan/fsmn-vad && cd fsmn-vad && python setup.py install)
 
@@ -20,25 +20,25 @@ import numpy as np
 import soundfile as sf
 
 
-def init_vad(vad_type: str = "simple", vad_model_path: Optional[str] = None) -> Any:
+def init_vad(vad_type: str = "simple-vad", vad_model_path: Optional[str] = None) -> Any:
     """
     Initialize and return a VAD instance.  Call once before processing multiple files.
 
     Parameters
     ----------
-    vad_type       : 'simple' | 'silero' | 'ten-vad' | 'fsmn-vad'
+    vad_type       : 'simple-vad' | 'silero-vad' | 'ten-vad' | 'fsmn-vad'
     vad_model_path : reserved for future model-based backends
 
     Returns
     -------
-    - 'simple'   : None  (no state needed)
-    - 'silero'   : (model, get_speech_timestamps) tuple
+    - 'simple-vad'   : None  (no state needed)
+    - 'silero-vad'   : (model, get_speech_timestamps) tuple
     - 'ten-vad'  : ten_vad.TenVad class (instance created fresh per audio to reset state)
     - 'fsmn-vad' : FSMNVad instance
     """
-    if vad_type == "simple":
+    if vad_type == "simple-vad":
         return None
-    elif vad_type == "silero":
+    elif vad_type == "silero-vad":
         # Prefer the silero_vad pip package (has bundled model, no network needed).
         # Fall back to torch.hub if the package is not installed.
         try:
@@ -63,12 +63,12 @@ def init_vad(vad_type: str = "simple", vad_model_path: Optional[str] = None) -> 
         from fsmnvad import FSMNVad
         return FSMNVad()
     else:
-        raise ValueError(f"Unknown vad_type: {vad_type!r}. Choose from 'simple', 'silero', 'ten-vad', 'fsmn-vad'.")
+        raise ValueError(f"Unknown vad_type: {vad_type!r}. Choose from 'simple-vad', 'silero-vad', 'ten-vad', 'fsmn-vad'.")
 
 
 def apply_vad(
     audio_path: str,
-    vad_type: str = "simple",
+    vad_type: str = "simple-vad",
     vad_instance: Any = None,
     silence_gap_s: float = 0.5,
     silence_thresh: float = 0.01,
@@ -80,7 +80,7 @@ def apply_vad(
     Parameters
     ----------
     audio_path    : path to a mono WAV file (any sample rate)
-    vad_type      : 'simple' | 'silero' | 'ten-vad' | 'fsmn-vad'
+    vad_type      : 'simple-vad' | 'silero-vad' | 'ten-vad' | 'fsmn-vad'
     vad_instance  : pre-initialized VAD object from init_vad(); if None, initializes on the fly
     silence_gap_s : (simple/ten-vad) min silence gap (s) to split segments
     silence_thresh: (simple) RMS energy threshold for silence
@@ -90,15 +90,16 @@ def apply_vad(
     -------
     List of {"start": float, "end": float} dicts in seconds.
     """
+    
     if vad_instance is None:
         vad_instance = init_vad(vad_type)
 
     audio, sample_rate = sf.read(audio_path, dtype="float32", always_2d=False)
     audio = np.asarray(audio, dtype=np.float32)
 
-    if vad_type == "simple":
+    if vad_type == "simple-vad":
         return _energy_vad(audio, sample_rate, silence_gap_s, silence_thresh, min_speech_s)
-    elif vad_type == "silero":
+    elif vad_type == "silero-vad":
         model, get_speech_timestamps = vad_instance
         return _silero_vad(audio, sample_rate, min_speech_s, model, get_speech_timestamps)
     elif vad_type == "ten-vad":
@@ -107,7 +108,7 @@ def apply_vad(
     elif vad_type == "fsmn-vad":
         return _fsmn_vad(audio_path, min_speech_s, vad_instance)
     else:
-        raise ValueError(f"Unknown vad_type: {vad_type!r}. Choose from 'simple', 'silero', 'ten-vad', 'fsmn-vad'.")
+        raise ValueError(f"Unknown vad_type: {vad_type!r}. Choose from 'simple-vad', 'silero-vad', 'ten-vad', 'fsmn-vad'.")
 
 
 # ---------------------------------------------------------------------------

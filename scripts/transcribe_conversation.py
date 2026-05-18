@@ -33,7 +33,7 @@ Output format:
     "rtf": 0.167,
     "rtfx": 6.0,
     "model_name": "Qwen3-ASR-0.6B",
-    "vad_model": "simple",
+    "vad_model": "simple-vad",
     "aligner_model": "Qwen3-ForcedAligner-0.6B",
     "conversations": [
       {"role": "channel_0", "text": "...", "start": 0.0, "end": 1.2},
@@ -92,11 +92,22 @@ def parse_args() -> argparse.Namespace:
                         help="Min speech segment duration (s); shorter segments are discarded")
     parser.add_argument("--channels", "-c", type=int, default=2,
                         help="Number of channels to process")
-    parser.add_argument("--vad", default="simple", choices=["simple", "silero", "ten-vad", "fsmn-vad"],
+    parser.add_argument("--vad", default="simple", choices=["simple", "simple-vad", "silero", "silero-vad", "ten", "ten-vad", "fsmn", "fsmn-vad"],
                         help="VAD backend: simple (energy), silero, ten-vad, or fsmn-vad")
     parser.add_argument("--vad_model_path", default=None,
                         help="Path to VAD model (reserved for future use)")
-    return parser.parse_args()
+    
+    args = parser.parse_args()
+    if "fsmn" in args.vad:
+        args.vad = "fsmn-vad"
+    elif "ten" in args.vad:
+        args.vad = "ten-vad"
+    elif "silero" in args.vad:
+        args.vad = "silero-vad"
+    elif "simple" in args.vad:
+        args.vad = "simple-vad"
+
+    return args
 
 
 def main() -> None:
@@ -121,7 +132,7 @@ def main() -> None:
     dtype = _DTYPE_MAP[args.dtype]
     logger.info("[config] model=%s  aligner=%s", args.model_path, args.aligner_path)
     logger.info("[config] device=%s  dtype=%s  vad=%s", args.device, args.dtype, args.vad)
-    if args.vad == "simple":
+    if args.vad == "simple-vad":
         logger.info("[config] silence_gap=%.2fs  silence_thresh=%.4f", args.silence_gap, args.silence_thresh)
     logger.info("[config] min_speech=%.2fs  channels=%d", args.min_speech, channels_to_process)
     logger.info("[input]  %s  (%d ch, %.1fs)", args.input, num_channels, total_dur_s)

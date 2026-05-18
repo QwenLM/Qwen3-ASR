@@ -20,12 +20,21 @@ Usage:
   --silence-thresh/-st    RMS energy threshold for silence detection (default: 0.01)
   --min-speech/-ms        Min speech segment duration (s) to keep (default: 0.2)
   --channels/-c           Number of channels to process (default: 2)
-  --vad                   VAD backend: simple / silero / ten-vad (default: simple)
+  --vad                   VAD backend: simple / silero / ten-vad / fsmn-vad (default: simple)
   --vad_model_path        Path to VAD model (reserved for future use)
 
 Output format:
   {
     "source": "...",
+    "filename": "...",
+    "channels": 2,
+    "audio_dur_s": 120.0,
+    "transcribe_s": 20.0,
+    "rtf": 0.167,
+    "rtfx": 6.0,
+    "model_name": "Qwen3-ASR-0.6B",
+    "vad": "simple",
+    "aligner_name": "Qwen3-ForcedAligner-0.6B",
     "conversations": [
       {"role": "channel_0", "text": "...", "start": 0.0, "end": 1.2},
       {"role": "channel_1", "text": "...", "start": 0.9, "end": 2.3},
@@ -36,6 +45,7 @@ Output format:
 
 import argparse
 import json
+import logging
 import os
 import tempfile
 import time
@@ -45,6 +55,14 @@ import torch
 
 from qwen_asr import Qwen3ASRModel
 from vad_utils import apply_vad, init_vad
+
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger(__name__)
 
 
 _DTYPE_MAP = {
@@ -92,7 +110,7 @@ def main() -> None:
     num_channels = audio_data.shape[1]
     channels_to_process = min(args.channels, num_channels)
     if num_channels < args.channels:
-        print(f"[warning] audio has {num_channels} channel(s), processing {channels_to_process}")
+        logger.warning("[warning] audio has %d channel(s), processing %d", num_channels, channels_to_process)
 
     basename = os.path.splitext(os.path.basename(args.input))[0]
     model_name = os.path.basename(os.path.normpath(args.model_path))
@@ -101,15 +119,12 @@ def main() -> None:
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
 
     dtype = _DTYPE_MAP[args.dtype]
-    print(f"[config] model:         {args.model_path}")
-    print(f"[config] device:        {args.device}  dtype: {args.dtype}")
-    print(f"[config] vad:           {args.vad}")
+    logger.info("[config] model=%s  aligner=%s", args.model_path, args.aligner_path)
+    logger.info("[config] device=%s  dtype=%s  vad=%s", args.device, args.dtype, args.vad)
     if args.vad == "simple":
-        print(f"[config] silence_gap:   {args.silence_gap}s")
-        print(f"[config] silence_thresh:{args.silence_thresh}")
-    print(f"[config] min_speech:    {args.min_speech}s")
-    print(f"[config] channels:      {channels_to_process}")
-    print(f"[input]  {args.input}  ({num_channels} ch, {total_dur_s:.1f}s)")
+        logger.info("[config] silence_gap=%.2fs  silence_thresh=%.4f", args.silence_gap, args.silence_thresh)
+    logger.info("[config] min_speech=%.2fs  channels=%d", args.min_speech, channels_to_process)
+    logger.info("[input]  %s  (%d ch, %.1fs)", args.input, num_channels, total_dur_s)
 
     t0 = time.perf_counter()
     asr = Qwen3ASRModel.from_pretrained(
@@ -121,12 +136,12 @@ def main() -> None:
         max_inference_batch_size=32,
         max_new_tokens=256,
     )
-    print(f"[timing] model load: {time.perf_counter() - t0:.3f}s")
+    logger.info("[timing] model loaded: %.3fs", time.perf_counter() - t0)
 
-    print(f"[vad] initializing {args.vad} VAD...")
+    logger.info("[vad] initializing %s VAD...", args.vad)
     t_vad = time.perf_counter()
     vad_instance = init_vad(args.vad, args.vad_model_path)
-    print(f"[vad] initialized in {time.perf_counter() - t_vad:.3f}s")
+    logger.info("[vad] initialized in %.3fs", time.perf_counter() - t_vad)
 
     all_utterances = []
     t_transcribe = time.perf_counter()
@@ -148,10 +163,10 @@ def main() -> None:
                 silence_thresh=args.silence_thresh,
                 min_speech_s=args.min_speech,
             )
-            print(f"\n[channel {ch}] {len(segments)} segment(s) detected by {args.vad} VAD")
+            logger.info("[channel %d] %d segment(s) detected by %s VAD", ch, len(segments), args.vad)
 
             if not segments:
-                print(f"[channel {ch}] no speech detected, skipping")
+                logger.info("[channel %d] no speech detected, skipping", ch)
                 continue
 
             # Transcribe each segment separately
@@ -172,9 +187,8 @@ def main() -> None:
                 elapsed = time.perf_counter() - t1
 
                 text = results[0].text.strip()
-                print(f"[channel {ch}] seg {seg_idx:03d} "
-                      f"[{seg['start']:.2f}s-{seg['end']:.2f}s] "
-                      f"({elapsed:.2f}s) -> {text!r}")
+                logger.info("[channel %d] seg %03d [%.2fs-%.2fs] (%.2fs) -> %r",
+                            ch, seg_idx, seg["start"], seg["end"], elapsed, text)
 
                 if text:
                     all_utterances.append({
@@ -188,29 +202,34 @@ def main() -> None:
     all_utterances.sort(key=lambda u: (u["start"], u["role"]))
 
     transcribe_s = time.perf_counter() - t_transcribe
-    if total_dur_s > 0:
-        rtf = transcribe_s / total_dur_s
-        rtfx = total_dur_s / transcribe_s
-        print(f"[timing] transcribe total: {transcribe_s:.3f}s")
-        print(f"[RTF]    RTF={rtf:.4f}  RTFx={rtfx:.2f}x")
+    rtf = transcribe_s / total_dur_s if total_dur_s > 0 else None
+    logger.info("[timing] transcribe total: %.3fs", transcribe_s)
+    if rtf is not None:
+        logger.info("[RTF]    RTF=%.4f  RTFx=%.2f", rtf, 1 / rtf)
 
     output = {
         "source":        args.input,
         "filename":      os.path.basename(args.input),
         "channels":      channels_to_process,
+        "audio_dur_s":   round(total_dur_s, 3),
+        "transcribe_s":  round(transcribe_s, 3),
+        "rtf":           round(rtf, 4) if rtf is not None else None,
+        "rtfx":          round(1 / rtf, 2) if rtf else None,
+        "model_name":    model_name,
         "vad":           args.vad,
+        "aligner_name":  aligner_name,
         "conversations": all_utterances,
     }
 
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
 
-    print(f"\n[result] {len(all_utterances)} utterance(s) in conversation")
+    logger.info("[result] %d utterance(s) in conversation", len(all_utterances))
     for u in all_utterances[:8]:
-        print(f"  [{u['start']:.2f}-{u['end']:.2f}] {u['role']}: {u['text']!r}")
+        logger.info("  [%.2f-%.2f] %s: %r", u["start"], u["end"], u["role"], u["text"])
     if len(all_utterances) > 8:
-        print(f"  ... ({len(all_utterances) - 8} more)")
-    print(f"\n[output] JSON written: {output_path}")
+        logger.info("  ... (%d more)", len(all_utterances) - 8)
+    logger.info("[output] saved: %s", output_path)
 
 
 if __name__ == "__main__":

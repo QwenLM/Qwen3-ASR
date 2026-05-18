@@ -12,6 +12,7 @@ Usage:
   --output/-o             JSON output path (default: results/<input_basename>.<model_name>.no_vad.<aligner_name>.json)
   --language/-l           Force language, e.g. "Chinese", "English"; auto-detect if not set
   --word-timestamps/-wts  Enable word-level timestamps
+  --silence-gap/-sg       Silence gap (s) to split word-level timestamps into segments (default: 0.5; 0 = no split)
   --gpu-memory-util/-gmu  vLLM GPU memory utilization (default: 0.8)
   --aligner-device/-ad    ForcedAligner device (default: cuda:0)
   --max-new-tokens        Max new tokens for generation (default: 1024)
@@ -38,6 +39,41 @@ def _audio_duration(path: str) -> float:
     return sf.info(path).duration
 
 
+def _split_timestamps_by_gap(time_stamps, silence_gap_s: float) -> list:
+    """
+    Aggregate word-level time_stamps into sentence segments by silence gap.
+    Each ts has .text, .start_time, .end_time (seconds).
+    Returns [{"text": ..., "start": ..., "end": ...}, ...].
+    When silence_gap_s <= 0, returns a single segment covering all words.
+    """
+    if not time_stamps:
+        return []
+
+    segments = []
+    seg_words = [time_stamps[0]]
+
+    for ts in time_stamps[1:]:
+        gap = ts.start_time - seg_words[-1].end_time
+        if silence_gap_s > 0 and gap >= silence_gap_s:
+            segments.append({
+                "text":  "".join(w.text for w in seg_words),
+                "start": round(seg_words[0].start_time, 3),
+                "end":   round(seg_words[-1].end_time, 3),
+            })
+            seg_words = [ts]
+        else:
+            seg_words.append(ts)
+
+    if seg_words:
+        segments.append({
+            "text":  "".join(w.text for w in seg_words),
+            "start": round(seg_words[0].start_time, 3),
+            "end":   round(seg_words[-1].end_time, 3),
+        })
+
+    return [s for s in segments if s["text"]]
+
+
 def _timed(label: str, fn, *args, audio_duration_s: float = 0.0, **kwargs):
     """Run fn and return (result, elapsed_s), printing elapsed time and RTF."""
     t0 = time.perf_counter()
@@ -62,6 +98,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", "-o", default=None, help="JSON output path (default: results/<input_basename>.<model_name>.no_vad.<aligner_name>.json)")
     parser.add_argument("--language", "-l", default=None, help='Force language, e.g. "Chinese", "English"')
     parser.add_argument("--word-timestamps", "-wts", action="store_true", dest="word_timestamps", help="Enable word-level timestamps")
+    parser.add_argument("--silence-gap", "-sg", type=float, default=0.5, dest="silence_gap",
+                        help="Silence gap (s) to split word-level timestamps into segments; 0 = no split")
     parser.add_argument("--gpu-memory-util", "-gmu", type=float, default=0.8, dest="gpu_memory_util", help="vLLM GPU memory utilization")
     parser.add_argument("--aligner-device", "-ad", default="cuda:0", dest="aligner_device", help="ForcedAligner device")
     parser.add_argument("--max-new-tokens", type=int, default=1024, dest="max_new_tokens", help="Max new tokens for generation")
@@ -105,14 +143,15 @@ def main() -> None:
         align_s = transcribe_s if args.word_timestamps else None
         rtf = transcribe_s / audio_dur_s if audio_dur_s > 0 else None
         align_rtf = align_s / audio_dur_s if (align_s and audio_dur_s > 0) else None
+        words_list = (
+            [{"text": ts.text, "start": ts.start_time, "end": ts.end_time}
+             for ts in r.time_stamps]
+            if r.time_stamps else []
+        )
+        segments = _split_timestamps_by_gap(r.time_stamps, args.silence_gap) if r.time_stamps else []
         return {
             "source":        audio_path,
             "filename":      os.path.basename(audio_path),
-            "model_name":    model_name,
-            "vad_model":     "no_vad",
-            "aligner_model": aligner_name,
-            "language":      r.language,
-            "text":          r.text,
             "audio_dur_s":   round(audio_dur_s, 3),
             "model_load_s":  round(model_load_s, 3),
             "transcribe_s":  round(transcribe_s, 3),
@@ -121,11 +160,13 @@ def main() -> None:
             "rtfx":          round(1.0 / rtf, 2) if rtf else None,
             "align_rtf":     round(align_rtf, 4) if align_rtf is not None else None,
             "align_rtfx":    round(1.0 / align_rtf, 2) if align_rtf else None,
-            "words":   (
-                [{"text": ts.text, "start": ts.start_time, "end": ts.end_time}
-                 for ts in r.time_stamps]
-                if r.time_stamps else []
-            ),
+            "model_name":    model_name,
+            "vad_model":     "no_vad",
+            "aligner_model": aligner_name,
+            "language":      r.language,
+            "text":          r.text,
+            "segments":      segments,
+            "words":         words_list,
         }
 
     def _print_result(output):

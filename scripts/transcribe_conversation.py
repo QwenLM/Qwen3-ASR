@@ -12,7 +12,7 @@ Usage:
   --model-path/-mp        ASR model path (default: ./checkpoints/Qwen3-ASR-0.6B)
   --aligner-path/-ap      ForcedAligner path (default: ./checkpoints/Qwen3-ForcedAligner-0.6B)
   --input/-i              Stereo audio file path (required)
-  --output/-o             JSON output path (default: results/<basename>.<model_name>.<vad>.<aligner_name>.json)
+  --output/-o             JSON output path (default: results/<basename>.conversation.<model_name>.<vad>.<aligner_name>.json)
   --language/-l           Force language, e.g. "Chinese", "English"; auto-detect if not set
   --device/-d             Inference device, e.g. "mps", "cuda:0", "cpu" (default: cuda:0)
   --dtype                 Model dtype: bfloat16 / float16 / float32 (default: bfloat16)
@@ -132,7 +132,7 @@ def main() -> None:
     basename = os.path.splitext(os.path.basename(args.input))[0]
     model_name = os.path.basename(os.path.normpath(args.model_path))
     aligner_name = os.path.basename(os.path.normpath(args.aligner_path))
-    output_path = args.output or f"results/{basename}-conversation.{model_name}.{args.vad}.{aligner_name}.json"
+    output_path = args.output or f"results/{basename}.conversation.{model_name}.{args.vad}.{aligner_name}.json"
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
 
     dtype = _DTYPE_MAP[args.dtype]

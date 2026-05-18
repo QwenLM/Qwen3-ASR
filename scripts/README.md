@@ -46,8 +46,7 @@ python scripts/transcribe.py -i <audio_file> [OPTIONS]
 | `--model-path / -mp` | `./checkpoints/Qwen3-ASR-0.6B` | ASR model path |
 | `--aligner-path / -ap` | `./checkpoints/Qwen3-ForcedAligner-0.6B` | ForcedAligner path |
 | `--input / -i` | *(required)* | Audio file path |
-| `--output / -o` | `results/<basename>.<model>.<vad>.<aligner>.json` | JSON output path |
-| `--language / -l` | auto-detect | Force language, e.g. `Chinese` |
+| `--output / -o` | `results/<basename>.<model>.no-vad.<aligner>.json` | JSON output path |
 | `--device / -d` | `cuda:0` | Inference device, e.g. `mps`, `cpu` |
 | `--dtype` | `bfloat16` | Model dtype: `bfloat16` / `float16` / `float32` |
 | `--word-timestamps / -wts` | off | Enable word-level timestamps |
@@ -75,7 +74,7 @@ python scripts/transcribe_vllm_streaming.py -i <audio_file> [OPTIONS]
 |--------|---------|-------------|
 | `--model-path / -mp` | `./checkpoints/Qwen3-ASR-1.7B` | ASR model path |
 | `--input / -i` | *(required)* | Audio file path |
-| `--output / -o` | `results/<basename>.<model>.no_vad.no_aligner.json` | JSON output path |
+| `--output / -o` | `results/<basename>.streaming.<model>.no-vad.no-aligner.json` | JSON output path |
 | `--language / -l` | auto-detect | Force language |
 | `--gpu-memory-util / -gmu` | `0.8` | vLLM GPU memory utilization |
 | `--max-new-tokens` | `32` | Max new tokens per streaming chunk |
@@ -138,8 +137,7 @@ python scripts/transcribe_conversation.py -i <stereo_audio> [OPTIONS]
 | `--model-path / -mp` | `./checkpoints/Qwen3-ASR-0.6B` | ASR model path |
 | `--aligner-path / -ap` | `./checkpoints/Qwen3-ForcedAligner-0.6B` | ForcedAligner path |
 | `--input / -i` | *(required)* | Stereo audio file path |
-| `--output / -o` | `results/<basename>.<model>.<vad>.<aligner>.json` | JSON output path |
-| `--language / -l` | auto-detect | Force language |
+| `--output / -o` | `results/<basename>.conversation.<model>.<vad>.<aligner>.json` | JSON output path |
 | `--device / -d` | `cuda:0` | Inference device |
 | `--dtype` | `bfloat16` | Model dtype |
 | `--channels / -c` | `2` | Number of channels to process |

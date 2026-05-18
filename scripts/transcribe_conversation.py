@@ -132,7 +132,7 @@ def main() -> None:
     basename = os.path.splitext(os.path.basename(args.input))[0]
     model_name = os.path.basename(os.path.normpath(args.model_path))
     aligner_name = os.path.basename(os.path.normpath(args.aligner_path))
-    output_path = args.output or f"results/{basename}.{model_name}.{args.vad}.{aligner_name}.json"
+    output_path = args.output or f"results/{basename}-conversation.{model_name}.{args.vad}.{aligner_name}.json"
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
 
     dtype = _DTYPE_MAP[args.dtype]

@@ -135,9 +135,8 @@ python scripts/transcribe_conversation.py -i <stereo_audio> [OPTIONS]
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--model-path / -mp` | `./checkpoints/Qwen3-ASR-0.6B` | ASR model path |
-| `--aligner-path / -ap` | `./checkpoints/Qwen3-ForcedAligner-0.6B` | ForcedAligner path |
 | `--input / -i` | *(required)* | Stereo audio file path |
-| `--output / -o` | `results/<basename>.conversation.<model>.<vad>.<aligner>.json` | JSON output path |
+| `--output / -o` | `results/<basename>.conversation.<model>.<vad>.no-aligner.json` | JSON output path |
 | `--device / -d` | `cuda:0` | Inference device |
 | `--dtype` | `bfloat16` | Model dtype |
 | `--channels / -c` | `2` | Number of channels to process |
@@ -172,7 +171,7 @@ python scripts/transcribe_conversation.py -i <stereo_audio> [OPTIONS]
   "vad_rtfx": 240.0,
   "model_name": "Qwen3-ASR-0.6B",
   "vad_model": "simple-vad",
-  "aligner_model": "Qwen3-ForcedAligner-0.6B",
+  "aligner_model": "no_aligner",
   "conversations": [
     {"role": "channel_0", "text": "...", "start": 0.0, "end": 1.2},
     {"role": "channel_1", "text": "...", "start": 0.9, "end": 2.3}

@@ -10,9 +10,8 @@ Usage:
   python scripts/transcribe_conversation.py -i <audio_file> [OPTIONS]
 
   --model-path/-mp        ASR model path (default: ./checkpoints/Qwen3-ASR-0.6B)
-  --aligner-path/-ap      ForcedAligner path (default: ./checkpoints/Qwen3-ForcedAligner-0.6B)
   --input/-i              Stereo audio file path (required)
-  --output/-o             JSON output path (default: results/<basename>.conversation.<model_name>.<vad>.<aligner_name>.json)
+  --output/-o             JSON output path (default: results/<basename>.conversation.<model_name>.<vad>.no-aligner.json)
   --language/-l           Force language, e.g. "Chinese", "English"; auto-detect if not set
   --device/-d             Inference device, e.g. "mps", "cuda:0", "cpu" (default: cuda:0)
   --dtype                 Model dtype: bfloat16 / float16 / float32 (default: bfloat16)
@@ -38,7 +37,7 @@ Output format:
     "vad_rtfx": 240.0,
     "model_name": "Qwen3-ASR-0.6B",
     "vad_model": "simple-vad",
-    "aligner_model": "Qwen3-ForcedAligner-0.6B",
+    "aligner_model": "no_aligner",
     "conversations": [
       {"role": "channel_0", "text": "...", "start": 0.0, "end": 1.2},
       {"role": "channel_1", "text": "...", "start": 0.9, "end": 2.3},
@@ -82,9 +81,8 @@ def parse_args() -> argparse.Namespace:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument("--model-path", "-mp", default="./checkpoints/Qwen3-ASR-0.6B", help="ASR model path")
-    parser.add_argument("--aligner-path", "-ap", default="./checkpoints/Qwen3-ForcedAligner-0.6B", help="ForcedAligner path")
     parser.add_argument("--input", "-i", required=True, help="Stereo audio file path")
-    parser.add_argument("--output", "-o", default=None, help="JSON output path (default: results/<basename>.<model_name>.<vad>.<aligner_name>.json)")
+    parser.add_argument("--output", "-o", default=None, help="JSON output path (default: results/<basename>.conversation.<model_name>.<vad>.no-aligner.json)")
     parser.add_argument("--language", "-l", default=None, help='Force language, e.g. "Chinese", "English"')
     parser.add_argument("--device", "-d", default="cuda:0", help='Inference device, e.g. "mps", "cuda:0", "cpu"')
     parser.add_argument("--dtype", default="bfloat16", choices=list(_DTYPE_MAP.keys()), help="Model dtype")
@@ -131,12 +129,11 @@ def main() -> None:
 
     basename = os.path.splitext(os.path.basename(args.input))[0]
     model_name = os.path.basename(os.path.normpath(args.model_path))
-    aligner_name = os.path.basename(os.path.normpath(args.aligner_path))
-    output_path = args.output or f"results/{basename}.conversation.{model_name}.{args.vad}.{aligner_name}.json"
+    output_path = args.output or f"results/{basename}.conversation.{model_name}.{args.vad}.no-aligner.json"
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
 
     dtype = _DTYPE_MAP[args.dtype]
-    logger.info("[config] model=%s  aligner=%s", args.model_path, args.aligner_path)
+    logger.info("[config] model=%s", args.model_path)
     logger.info("[config] device=%s  dtype=%s  vad=%s", args.device, args.dtype, args.vad)
     if args.vad == "simple-vad":
         logger.info("[config] silence_gap=%.2fs  silence_thresh=%.4f", args.silence_gap, args.silence_thresh)
@@ -148,8 +145,6 @@ def main() -> None:
         args.model_path,
         dtype=dtype,
         device_map=args.device,
-        forced_aligner=args.aligner_path,
-        forced_aligner_kwargs=dict(dtype=dtype, device_map=args.device),
         max_inference_batch_size=32,
         max_new_tokens=args.max_new_tokens,
     )
@@ -244,7 +239,7 @@ def main() -> None:
         "vad_rtfx":      round(1 / vad_rtf, 2) if vad_rtf else None,
         "model_name":    model_name,
         "vad_model":     args.vad,
-        "aligner_model": aligner_name,
+        "aligner_model": "no_aligner",
         "conversations": all_utterances,
     }
 

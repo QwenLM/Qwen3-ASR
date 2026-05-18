@@ -79,7 +79,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _build_output(args, audio_path, r, audio_dur_s, model_load_s, transcribe_s):
+def _build_output(args, audio_path, r, audio_dur_s, model_load_s, transcribe_s, model_name, aligner_name):
     """Build the output dict for a single transcription result."""
     align_s = transcribe_s if args.timestamps else None
     rtf = transcribe_s / audio_dur_s if audio_dur_s > 0 else None
@@ -87,6 +87,9 @@ def _build_output(args, audio_path, r, audio_dur_s, model_load_s, transcribe_s):
     return {
         "source":        audio_path,
         "filename":      os.path.basename(audio_path),
+        "model_name":    model_name,
+        "vad_model":     "no_vad",
+        "aligner_model": aligner_name,
         "language":      r.language,
         "audio_dur_s":   round(audio_dur_s, 3),
         "model_load_s":  round(model_load_s, 3),
@@ -155,7 +158,7 @@ def main() -> None:
                 )
 
                 r = results[0]
-                output = _build_output(args, args.input, r, audio_dur_s, model_load_s, transcribe_s)
+                output = _build_output(args, args.input, r, audio_dur_s, model_load_s, transcribe_s, model_name, aligner_name)
                 output["channel"] = ch
 
                 if args.output:
@@ -184,7 +187,7 @@ def main() -> None:
         )
 
         r = results[0]
-        output = _build_output(args, args.input, r, audio_dur_s, model_load_s, transcribe_s)
+        output = _build_output(args, args.input, r, audio_dur_s, model_load_s, transcribe_s, model_name, aligner_name)
 
         logger.info("[result] language=%s", output["language"])
         with open(output_path, "w", encoding="utf-8") as f:

@@ -108,6 +108,9 @@ def main() -> None:
         return {
             "source":        audio_path,
             "filename":      os.path.basename(audio_path),
+            "model_name":    model_name,
+            "vad_model":     "no_vad",
+            "aligner_model": aligner_name,
             "language":      r.language,
             "text":          r.text,
             "audio_dur_s":   round(audio_dur_s, 3),

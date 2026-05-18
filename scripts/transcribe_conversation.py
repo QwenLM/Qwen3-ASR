@@ -33,8 +33,8 @@ Output format:
     "rtf": 0.167,
     "rtfx": 6.0,
     "model_name": "Qwen3-ASR-0.6B",
-    "vad": "simple",
-    "aligner_name": "Qwen3-ForcedAligner-0.6B",
+    "vad_model": "simple",
+    "aligner_model": "Qwen3-ForcedAligner-0.6B",
     "conversations": [
       {"role": "channel_0", "text": "...", "start": 0.0, "end": 1.2},
       {"role": "channel_1", "text": "...", "start": 0.9, "end": 2.3},
@@ -216,8 +216,8 @@ def main() -> None:
         "rtf":           round(rtf, 4) if rtf is not None else None,
         "rtfx":          round(1 / rtf, 2) if rtf else None,
         "model_name":    model_name,
-        "vad":           args.vad,
-        "aligner_name":  aligner_name,
+        "vad_model":     args.vad,
+        "aligner_model": aligner_name,
         "conversations": all_utterances,
     }
 

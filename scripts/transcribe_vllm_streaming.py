@@ -109,6 +109,9 @@ def _stream_transcribe(asr, wav16k, args, model_load_s, audio_path, output_path)
     output = {
         "source":        audio_path,
         "filename":      os.path.basename(audio_path),
+        "model_name":    model_name,
+        "vad_model":     "no_vad",
+        "aligner_model": "no_aligner",
         "language":      state.language,
         "text":          state.text,
         "audio_dur_s":   round(audio_dur_s, 3),

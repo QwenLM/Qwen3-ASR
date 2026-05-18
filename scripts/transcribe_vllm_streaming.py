@@ -9,7 +9,7 @@ Usage:
 
   --model-path/-mp        ASR model path (default: ./checkpoints/Qwen3-ASR-1.7B)
   --input/-i              Audio file path (required)
-  --output/-o             JSON output path (default: results/<input_basename>.<model_name>.no_vad.json)
+  --output/-o             JSON output path (default: results/<input_basename>.<model_name>.no_vad.no_aligner.json)
   --language/-l           Force language, e.g. "Chinese", "English"; auto-detect if not set
   --gpu-memory-util/-gmu  vLLM GPU memory utilization (default: 0.8)
   --max-new-tokens        Max new tokens per chunk (default: 32)
@@ -62,7 +62,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--model-path", "-mp", default="./checkpoints/Qwen3-ASR-1.7B", help="ASR model path")
     parser.add_argument("--input", "-i", required=True, help="Audio file path")
-    parser.add_argument("--output", "-o", default=None, help="JSON output path (default: results/<input_basename>.<model_name>.no_vad.json)")
+    parser.add_argument("--output", "-o", default=None, help="JSON output path (default: results/<input_basename>.<model_name>.no_vad.no_aligner.json)")
     parser.add_argument("--language", "-l", default=None, help='Force language, e.g. "Chinese", "English"')
     parser.add_argument("--gpu-memory-util", "-gmu", type=float, default=0.8, dest="gpu_memory_util", help="vLLM GPU memory utilization")
     parser.add_argument("--max-new-tokens", type=int, default=32, dest="max_new_tokens", help="Max new tokens per streaming chunk")
@@ -168,11 +168,11 @@ def main() -> None:
                     out_base, out_ext = os.path.splitext(args.output)
                     output_path = f"{out_base}.channel{ch}{out_ext}"
                 else:
-                    output_path = f"results/{basename}.{model_name}.no_vad.channel{ch}.json"
+                    output_path = f"results/{basename}.{model_name}.no_vad.channel{ch}.no_aligner.json"
 
                 _stream_transcribe(asr, wav16k, args, model_load_s, args.input, output_path)
     else:
-        output_path = args.output or f"results/{basename}.{model_name}.no_vad.json"
+        output_path = args.output or f"results/{basename}.{model_name}.no_vad.no_aligner.json"
         wav16k = _load_wav_16k(args.input)
         _stream_transcribe(asr, wav16k, args, model_load_s, args.input, output_path)
 

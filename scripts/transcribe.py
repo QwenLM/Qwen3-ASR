@@ -9,7 +9,7 @@ Usage:
   --model-path/-mp      ASR model path (default: ./checkpoints/Qwen3-ASR-0.6B)
   --aligner-path/-ap    ForcedAligner path (default: ./checkpoints/Qwen3-ForcedAligner-0.6B)
   --input/-i            Audio file path (required)
-  --output/-o           JSON output path (default: results/<input_basename>.<model_name>.no_vad.json)
+  --output/-o           JSON output path (default: results/<input_basename>.<model_name>.no_vad.<aligner_name>.json)
   --language/-l         Force language, e.g. "Chinese", "English"; auto-detect if not set
   --timestamps/-ts      Enable word-level timestamps
   --device/-d           Inference device, e.g. "mps", "cuda:0", "cpu" (cuda:0)
@@ -69,7 +69,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model-path", "-mp", default="./checkpoints/Qwen3-ASR-0.6B", help="ASR model path")
     parser.add_argument("--aligner-path", "-ap", default="./checkpoints/Qwen3-ForcedAligner-0.6B", help="ForcedAligner path")
     parser.add_argument("--input", "-i", required=True, help="Audio file path")
-    parser.add_argument("--output", "-o", default=None, help="JSON output path (default: results/<input_basename>.<model_name>.no_vad.json)")
+    parser.add_argument("--output", "-o", default=None, help="JSON output path (default: results/<input_basename>.<model_name>.no_vad.<aligner_name>.json)")
     parser.add_argument("--language", "-l", default=None, help='Force language, e.g. "Chinese", "English"')
     parser.add_argument("--timestamps", "-ts", action="store_true", help="Enable word-level timestamps")
     parser.add_argument("--device", "-d", default="cuda:0", help='Inference device, e.g. "mps", "cuda:0", "cpu"')
@@ -112,6 +112,7 @@ def main() -> None:
 
     basename = os.path.splitext(os.path.basename(args.input))[0]
     model_name = os.path.basename(os.path.normpath(args.model_path))
+    aligner_name = os.path.basename(os.path.normpath(args.aligner_path))
     dtype = _DTYPE_MAP[args.dtype]
     logger.info("[config] model=%s  aligner=%s", args.model_path, args.aligner_path)
     logger.info("[config] device=%s  dtype=%s", args.device, args.dtype)
@@ -160,7 +161,7 @@ def main() -> None:
                     out_base, out_ext = os.path.splitext(args.output)
                     output_path = f"{out_base}.channel{ch}{out_ext}"
                 else:
-                    output_path = f"results/{basename}.{model_name}.no_vad.channel{ch}.json"
+                    output_path = f"results/{basename}.{model_name}.no_vad.channel{ch}.{aligner_name}.json"
                 os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
 
                 logger.info("[result] language=%s", output["language"])
@@ -168,7 +169,7 @@ def main() -> None:
                     json.dump(output, f, ensure_ascii=False, indent=2)
                 logger.info("[output] saved: %s", output_path)
     else:
-        output_path = args.output or f"results/{basename}.{model_name}.no_vad.json"
+        output_path = args.output or f"results/{basename}.{model_name}.no_vad.{aligner_name}.json"
         os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
 
         audio_dur_s = _audio_duration(args.input)

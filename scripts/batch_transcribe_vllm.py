@@ -51,6 +51,9 @@ _TSV_FIELDS = [
     "rtfx",          # Inverse RTF = audio_dur_s / transcribe_s
     "align_rtf",     # Align RTF = align_s / audio_dur_s (empty when timestamps disabled)
     "align_rtfx",    # Inverse Align RTF = audio_dur_s / align_s (empty when timestamps disabled)
+    "model_name",    # ASR model name
+    "vad_model",     # VAD model name (no_vad when VAD disabled)
+    "aligner_model", # ForcedAligner model name
     "language",      # detected language
     "text",          # transcription text
     "words",         # word-level timestamps as JSON (empty when timestamps disabled)
@@ -72,6 +75,9 @@ class TimedResult:
     align_s: Optional[float] = None
     words: list = field(default_factory=list)
     channel: Optional[int] = None
+    model_name: str = ""
+    vad_model: str = "no_vad"
+    aligner_model: str = ""
 
     @property
     def rtf(self) -> Optional[float]:
@@ -174,6 +180,9 @@ def _write_tsv(output_path: str, rows: List[TimedResult]) -> None:
                 "rtfx":         f"{row.rtfx:.2f}" if row.rtfx is not None else "",
                 "align_rtf":    f"{row.align_rtf:.4f}" if row.align_rtf is not None else "",
                 "align_rtfx":   f"{row.align_rtfx:.2f}" if row.align_rtfx is not None else "",
+                "model_name":   row.model_name,
+                "vad_model":    row.vad_model,
+                "aligner_model": row.aligner_model,
                 "language":     row.language or "",
                 "text":         row.text,
                 "words":        ts_json,
@@ -273,6 +282,8 @@ def main() -> None:
         return
 
     print(f"[config] model:           {args.model_path}")
+    model_name = os.path.basename(os.path.normpath(args.model_path))
+    aligner_name = os.path.basename(os.path.normpath(args.aligner_path))
     print(f"[config] aligner:         {args.aligner_path}")
     print(f"[config] gpu_memory_util: {args.gpu_memory_util}")
     print(f"[config] aligner_device:  {args.aligner_device}")
@@ -335,6 +346,9 @@ def main() -> None:
             timed = _make_timed_results(results, batch_orig, durs, model_load_s, elapsed, align_s)
             for tr, ch in zip(timed, batch_chs):
                 tr.channel = ch
+                tr.model_name = model_name
+                tr.vad_model = "no_vad"
+                tr.aligner_model = aligner_name
             all_rows += timed
     finally:
         if args.seperate_channel:

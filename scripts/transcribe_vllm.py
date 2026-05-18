@@ -121,7 +121,7 @@ def main() -> None:
             "rtfx":          round(1.0 / rtf, 2) if rtf else None,
             "align_rtf":     round(align_rtf, 4) if align_rtf is not None else None,
             "align_rtfx":    round(1.0 / align_rtf, 2) if align_rtf else None,
-            "time_stamps":   (
+            "words":   (
                 [{"text": ts.text, "start": ts.start_time, "end": ts.end_time}
                  for ts in r.time_stamps]
                 if r.time_stamps else []
@@ -131,9 +131,9 @@ def main() -> None:
     def _print_result(output):
         print(f"\n[result] language={output['language']!r}")
         print(f"[result] text={output['text']!r}")
-        if output["time_stamps"]:
-            head = output["time_stamps"][0]
-            tail = output["time_stamps"][-1]
+        if output["words"]:
+            head = output["words"][0]
+            tail = output["words"][-1]
             print(f"[result] ts_first: {head['text']!r} {head['start']}->{head['end']} s")
             print(f"[result] ts_last : {tail['text']!r} {tail['start']}->{tail['end']} s")
 

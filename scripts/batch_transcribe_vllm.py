@@ -53,7 +53,7 @@ _TSV_FIELDS = [
     "align_rtfx",    # Inverse Align RTF = audio_dur_s / align_s (empty when timestamps disabled)
     "language",      # detected language
     "text",          # transcription text
-    "time_stamps",   # word-level timestamps as JSON (empty when timestamps disabled)
+    "words",         # word-level timestamps as JSON (empty when timestamps disabled)
 ]
 
 
@@ -70,7 +70,7 @@ class TimedResult:
     model_load_s: float
     transcribe_s: float
     align_s: Optional[float] = None
-    time_stamps: list = field(default_factory=list)
+    words: list = field(default_factory=list)
     channel: Optional[int] = None
 
     @property
@@ -157,10 +157,10 @@ def _write_tsv(output_path: str, rows: List[TimedResult]) -> None:
             ts_json = (
                 json.dumps(
                     [{"text": ts.text, "start": ts.start_time, "end": ts.end_time}
-                     for ts in row.time_stamps],
+                     for ts in row.words],
                     ensure_ascii=False,
                 )
-                if row.time_stamps else ""
+                if row.words else ""
             )
             writer.writerow({
                 "filename":     os.path.basename(row.source),
@@ -176,7 +176,7 @@ def _write_tsv(output_path: str, rows: List[TimedResult]) -> None:
                 "align_rtfx":   f"{row.align_rtfx:.2f}" if row.align_rtfx is not None else "",
                 "language":     row.language or "",
                 "text":         row.text,
-                "time_stamps":  ts_json,
+                "words":        ts_json,
             })
     print(f"[output] TSV written: {output_path}")
 
@@ -229,7 +229,7 @@ def _make_timed_results(
             model_load_s=model_load_s,
             transcribe_s=transcribe_s,
             align_s=align_s,
-            time_stamps=r.time_stamps or [],
+            words=r.time_stamps or [],
         )
         for i, r in enumerate(asr_results)
     ]

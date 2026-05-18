@@ -38,14 +38,14 @@ Output format (json):
       {"text": "segment text", "start": 0.0, "end": 2.5},
       ...
     ],
-    "time_stamps": [
+    "words": [
       {"text": "字", "start": 0.12, "end": 0.36},
       ...
     ]
   }
   segments: word-level timestamps aggregated into sentence segments by silence_gap.
             Empty list when --timestamps is not set.
-  time_stamps: raw word-level timestamps; empty list when --timestamps is not set.
+  words: raw word-level timestamps; empty list when --timestamps is not set.
 """
 
 import argparse
@@ -153,7 +153,7 @@ def _build_output(args, audio_path, r, audio_dur_s, model_load_s, transcribe_s, 
     rtf = transcribe_s / audio_dur_s if audio_dur_s > 0 else None
     align_rtf = align_s / audio_dur_s if (align_s and audio_dur_s > 0) else None
 
-    time_stamps_list = (
+    words_list = (
         [{"text": ts.text, "start": ts.start_time, "end": ts.end_time}
          for ts in r.time_stamps]
         if r.time_stamps else []
@@ -177,7 +177,7 @@ def _build_output(args, audio_path, r, audio_dur_s, model_load_s, transcribe_s, 
         "language":      r.language,
         "text":          r.text,
         "segments":      segments,
-        "time_stamps":   time_stamps_list,
+        "words":         words_list,
     }
 
 
@@ -242,8 +242,8 @@ def main() -> None:
                     output_path = f"results/{basename}.{model_name}.no_vad.channel{ch}.{aligner_name}.json"
                 os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
 
-                logger.info("[result] language=%s  segments=%d  time_stamps=%d",
-                            output["language"], len(output["segments"]), len(output["time_stamps"]))
+                logger.info("[result] language=%s  segments=%d  words=%d",
+                            output["language"], len(output["segments"]), len(output["words"]))
                 with open(output_path, "w", encoding="utf-8") as f:
                     json.dump(output, f, ensure_ascii=False, indent=2)
                 logger.info("[output] saved: %s", output_path)
@@ -264,8 +264,8 @@ def main() -> None:
         r = results[0]
         output = _build_output(args, args.input, r, audio_dur_s, model_load_s, transcribe_s, model_name, aligner_name)
 
-        logger.info("[result] language=%s  segments=%d  time_stamps=%d",
-                    output["language"], len(output["segments"]), len(output["time_stamps"]))
+        logger.info("[result] language=%s  segments=%d  words=%d",
+                    output["language"], len(output["segments"]), len(output["words"]))
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(output, f, ensure_ascii=False, indent=2)
         logger.info("[output] saved: %s", output_path)

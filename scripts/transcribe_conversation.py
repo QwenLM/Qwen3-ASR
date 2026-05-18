@@ -32,6 +32,9 @@ Output format:
     "transcribe_s": 20.0,
     "rtf": 0.167,
     "rtfx": 6.0,
+    "vad_s": 0.5,
+    "vad_rtf": 0.004,
+    "vad_rtfx": 240.0,
     "model_name": "Qwen3-ASR-0.6B",
     "vad_model": "simple-vad",
     "aligner_model": "Qwen3-ForcedAligner-0.6B",
@@ -155,6 +158,7 @@ def main() -> None:
     logger.info("[vad] initialized in %.3fs", time.perf_counter() - t_vad)
 
     all_utterances = []
+    total_vad_s = 0.0
     t_transcribe = time.perf_counter()
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -166,6 +170,7 @@ def main() -> None:
             sf.write(tmp_ch_wav, channel_audio, sample_rate)
 
             # VAD: find speech segments for this channel
+            t_vad_ch = time.perf_counter()
             segments = apply_vad(
                 tmp_ch_wav,
                 vad_type=args.vad,
@@ -174,6 +179,7 @@ def main() -> None:
                 silence_thresh=args.silence_thresh,
                 min_speech_s=args.min_speech,
             )
+            total_vad_s += time.perf_counter() - t_vad_ch
             logger.info("[channel %d] %d segment(s) detected by %s VAD", ch, len(segments), args.vad)
 
             if not segments:
@@ -214,9 +220,13 @@ def main() -> None:
 
     transcribe_s = time.perf_counter() - t_transcribe
     rtf = transcribe_s / total_dur_s if total_dur_s > 0 else None
+    vad_rtf = total_vad_s / total_dur_s if total_dur_s > 0 else None
     logger.info("[timing] transcribe total: %.3fs", transcribe_s)
+    logger.info("[timing] vad total:        %.3fs", total_vad_s)
     if rtf is not None:
         logger.info("[RTF]    RTF=%.4f  RTFx=%.2f", rtf, 1 / rtf)
+    if vad_rtf is not None:
+        logger.info("[VAD RTF] RTF=%.4f  RTFx=%.2f", vad_rtf, 1 / vad_rtf)
 
     output = {
         "source":        args.input,
@@ -226,6 +236,9 @@ def main() -> None:
         "transcribe_s":  round(transcribe_s, 3),
         "rtf":           round(rtf, 4) if rtf is not None else None,
         "rtfx":          round(1 / rtf, 2) if rtf else None,
+        "vad_s":         round(total_vad_s, 3),
+        "vad_rtf":       round(vad_rtf, 4) if vad_rtf is not None else None,
+        "vad_rtfx":      round(1 / vad_rtf, 2) if vad_rtf else None,
         "model_name":    model_name,
         "vad_model":     args.vad,
         "aligner_model": aligner_name,

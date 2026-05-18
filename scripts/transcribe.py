@@ -12,9 +12,40 @@ Usage:
   --output/-o           JSON output path (default: results/<input_basename>.<model_name>.no_vad.<aligner_name>.json)
   --language/-l         Force language, e.g. "Chinese", "English"; auto-detect if not set
   --timestamps/-ts      Enable word-level timestamps
-  --device/-d           Inference device, e.g. "mps", "cuda:0", "cpu" (cuda:0)
+  --silence-gap/-sg     Silence gap (s) to split word-level timestamps into segments (default: 0.5; 0 = no split)
+  --device/-d           Inference device, e.g. "mps", "cuda:0", "cpu" (default: cuda:0)
   --dtype               Model dtype: bfloat16 / float16 / float32 (default: bfloat16)
   --seperate_channel/-sc  Split multi-channel audio and transcribe each channel separately
+
+Output format (json):
+  {
+    "source": "...",
+    "filename": "...",
+    "audio_dur_s": 12.34,
+    "model_load_s": 1.0,
+    "transcribe_s": 1.23,
+    "align_s": 0.5,
+    "rtf": 0.1,
+    "rtfx": 10.0,
+    "align_rtf": 0.04,
+    "align_rtfx": 25.0,
+    "model_name": "Qwen3-ASR-0.6B",
+    "vad_model": "no_vad",
+    "aligner_model": "Qwen3-ForcedAligner-0.6B",
+    "language": "Chinese",
+    "text": "full transcription text",
+    "segments": [
+      {"text": "segment text", "start": 0.0, "end": 2.5},
+      ...
+    ],
+    "time_stamps": [
+      {"text": "字", "start": 0.12, "end": 0.36},
+      ...
+    ]
+  }
+  segments: word-level timestamps aggregated into sentence segments by silence_gap.
+            Empty list when --timestamps is not set.
+  time_stamps: raw word-level timestamps; empty list when --timestamps is not set.
 """
 
 import argparse
@@ -61,6 +92,41 @@ def _timed(label: str, fn, *args, audio_duration_s: float = 0.0, **kwargs):
     return result, elapsed
 
 
+def _split_timestamps_by_gap(time_stamps, silence_gap_s: float) -> list:
+    """
+    Aggregate word-level time_stamps into sentence segments by silence gap.
+    Each ts has .text, .start_time, .end_time (seconds).
+    Returns [{"text": ..., "start": ..., "end": ...}, ...].
+    When silence_gap_s <= 0, returns a single segment covering all words.
+    """
+    if not time_stamps:
+        return []
+
+    segments = []
+    seg_words = [time_stamps[0]]
+
+    for ts in time_stamps[1:]:
+        gap = ts.start_time - seg_words[-1].end_time
+        if silence_gap_s > 0 and gap >= silence_gap_s:
+            segments.append({
+                "text":  "".join(w.text for w in seg_words),
+                "start": round(seg_words[0].start_time, 3),
+                "end":   round(seg_words[-1].end_time, 3),
+            })
+            seg_words = [ts]
+        else:
+            seg_words.append(ts)
+
+    if seg_words:
+        segments.append({
+            "text":  "".join(w.text for w in seg_words),
+            "start": round(seg_words[0].start_time, 3),
+            "end":   round(seg_words[-1].end_time, 3),
+        })
+
+    return [s for s in segments if s["text"]]
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Qwen3-ASR single-file transcription tool",
@@ -72,6 +138,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", "-o", default=None, help="JSON output path (default: results/<input_basename>.<model_name>.no_vad.<aligner_name>.json)")
     parser.add_argument("--language", "-l", default=None, help='Force language, e.g. "Chinese", "English"')
     parser.add_argument("--timestamps", "-ts", action="store_true", help="Enable word-level timestamps")
+    parser.add_argument("--silence-gap", "-sg", type=float, default=0.5, dest="silence_gap",
+                        help="Silence gap (s) to split word-level timestamps into segments; 0 = no split")
     parser.add_argument("--device", "-d", default="cuda:0", help='Inference device, e.g. "mps", "cuda:0", "cpu"')
     parser.add_argument("--dtype", default="bfloat16", choices=list(_DTYPE_MAP.keys()), help="Model dtype")
     parser.add_argument("--seperate_channel", "-sc", action="store_true", default=False,
@@ -84,13 +152,17 @@ def _build_output(args, audio_path, r, audio_dur_s, model_load_s, transcribe_s, 
     align_s = transcribe_s if args.timestamps else None
     rtf = transcribe_s / audio_dur_s if audio_dur_s > 0 else None
     align_rtf = align_s / audio_dur_s if (align_s and audio_dur_s > 0) else None
+
+    time_stamps_list = (
+        [{"text": ts.text, "start": ts.start_time, "end": ts.end_time}
+         for ts in r.time_stamps]
+        if r.time_stamps else []
+    )
+    segments = _split_timestamps_by_gap(r.time_stamps, args.silence_gap) if r.time_stamps else []
+
     return {
         "source":        audio_path,
         "filename":      os.path.basename(audio_path),
-        "model_name":    model_name,
-        "vad_model":     "no_vad",
-        "aligner_model": aligner_name,
-        "language":      r.language,
         "audio_dur_s":   round(audio_dur_s, 3),
         "model_load_s":  round(model_load_s, 3),
         "transcribe_s":  round(transcribe_s, 3),
@@ -99,12 +171,13 @@ def _build_output(args, audio_path, r, audio_dur_s, model_load_s, transcribe_s, 
         "rtfx":          round(1.0 / rtf, 2) if rtf else None,
         "align_rtf":     round(align_rtf, 4) if align_rtf is not None else None,
         "align_rtfx":    round(1.0 / align_rtf, 2) if align_rtf else None,
+        "model_name":    model_name,
+        "vad_model":     "no_vad",
+        "aligner_model": aligner_name,
+        "language":      r.language,
         "text":          r.text,
-        "time_stamps":   (
-            [{"text": ts.text, "start": ts.start_time, "end": ts.end_time}
-             for ts in r.time_stamps]
-            if r.time_stamps else []
-        ),
+        "segments":      segments,
+        "time_stamps":   time_stamps_list,
     }
 
 
@@ -120,6 +193,7 @@ def main() -> None:
     dtype = _DTYPE_MAP[args.dtype]
     logger.info("[config] model=%s  aligner=%s", args.model_path, args.aligner_path)
     logger.info("[config] device=%s  dtype=%s", args.device, args.dtype)
+    logger.info("[config] timestamps=%s  silence_gap=%.2fs", args.timestamps, args.silence_gap)
     logger.info("[input]  %s", args.input)
 
     t0 = time.perf_counter()
@@ -168,7 +242,8 @@ def main() -> None:
                     output_path = f"results/{basename}.{model_name}.no_vad.channel{ch}.{aligner_name}.json"
                 os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
 
-                logger.info("[result] language=%s", output["language"])
+                logger.info("[result] language=%s  segments=%d  time_stamps=%d",
+                            output["language"], len(output["segments"]), len(output["time_stamps"]))
                 with open(output_path, "w", encoding="utf-8") as f:
                     json.dump(output, f, ensure_ascii=False, indent=2)
                 logger.info("[output] saved: %s", output_path)
@@ -189,7 +264,8 @@ def main() -> None:
         r = results[0]
         output = _build_output(args, args.input, r, audio_dur_s, model_load_s, transcribe_s, model_name, aligner_name)
 
-        logger.info("[result] language=%s", output["language"])
+        logger.info("[result] language=%s  segments=%d  time_stamps=%d",
+                    output["language"], len(output["segments"]), len(output["time_stamps"]))
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(output, f, ensure_ascii=False, indent=2)
         logger.info("[output] saved: %s", output_path)

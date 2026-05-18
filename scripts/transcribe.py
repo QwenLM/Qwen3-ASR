@@ -19,6 +19,7 @@ Usage:
 
 import argparse
 import json
+import logging
 import os
 import tempfile
 import time
@@ -27,6 +28,14 @@ import soundfile as sf
 import torch
 
 from qwen_asr import Qwen3ASRModel
+
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger(__name__)
 
 
 _DTYPE_MAP = {
@@ -41,15 +50,14 @@ def _audio_duration(path: str) -> float:
 
 
 def _timed(label: str, fn, *args, audio_duration_s: float = 0.0, **kwargs):
-    """Run fn and return (result, elapsed_s), printing elapsed time and RTF."""
+    """Run fn and return (result, elapsed_s), logging elapsed time and RTF."""
     t0 = time.perf_counter()
     result = fn(*args, **kwargs)
     elapsed = time.perf_counter() - t0
-    print(f"[timing] {label}: {elapsed:.3f}s")
+    logger.info("[timing] %s: %.3fs", label, elapsed)
     if audio_duration_s > 0:
         rtf = elapsed / audio_duration_s
-        rtfx = audio_duration_s / elapsed
-        print(f"[RTF]    RTF={rtf:.4f}  RTFx={rtfx:.2f}x")
+        logger.info("[RTF]    RTF=%.4f  RTFx=%.2f", rtf, 1 / rtf)
     return result, elapsed
 
 
@@ -80,7 +88,6 @@ def _build_output(args, audio_path, r, audio_dur_s, model_load_s, transcribe_s):
         "source":        audio_path,
         "filename":      os.path.basename(audio_path),
         "language":      r.language,
-        "text":          r.text,
         "audio_dur_s":   round(audio_dur_s, 3),
         "model_load_s":  round(model_load_s, 3),
         "transcribe_s":  round(transcribe_s, 3),
@@ -88,22 +95,13 @@ def _build_output(args, audio_path, r, audio_dur_s, model_load_s, transcribe_s):
         "rtf":           round(rtf, 4) if rtf is not None else None,
         "rtfx":          round(1.0 / rtf, 2) if rtf else None,
         "align_rtf":     round(align_rtf, 4) if align_rtf is not None else None,
+        "text":          r.text,
         "time_stamps":   (
             [{"text": ts.text, "start": ts.start_time, "end": ts.end_time}
              for ts in r.time_stamps]
             if r.time_stamps else []
         ),
     }
-
-
-def _print_result(output):
-    print(f"\n[result] language={output['language']!r}")
-    print(f"[result] text={output['text']!r}")
-    if output["time_stamps"]:
-        head = output["time_stamps"][0]
-        tail = output["time_stamps"][-1]
-        print(f"[result] ts_first: {head['text']!r} {head['start']}->{head['end']} s")
-        print(f"[result] ts_last : {tail['text']!r} {tail['start']}->{tail['end']} s")
 
 
 def main() -> None:
@@ -114,10 +112,9 @@ def main() -> None:
 
     basename = os.path.splitext(os.path.basename(args.input))[0]
     dtype = _DTYPE_MAP[args.dtype]
-    print(f"[config] model:   {args.model_path}")
-    print(f"[config] aligner: {args.aligner_path}")
-    print(f"[config] device:  {args.device}  dtype: {args.dtype}")
-    print(f"[input]  {args.input}")
+    logger.info("[config] model=%s  aligner=%s", args.model_path, args.aligner_path)
+    logger.info("[config] device=%s  dtype=%s", args.device, args.dtype)
+    logger.info("[input]  %s", args.input)
 
     t0 = time.perf_counter()
     asr = Qwen3ASRModel.from_pretrained(
@@ -130,13 +127,12 @@ def main() -> None:
         max_new_tokens=256,
     )
     model_load_s = time.perf_counter() - t0
-    print(f"[timing] model load: {model_load_s:.3f}s")
+    logger.info("[timing] model loaded: %.3fs", model_load_s)
 
     if args.seperate_channel:
-        # Read all channels from the audio file
         audio_data, sample_rate = sf.read(args.input, always_2d=True)
         num_channels = audio_data.shape[1]
-        print(f"[channel] detected {num_channels} channel(s), transcribing separately")
+        logger.info("[channel] detected %d channel(s), transcribing separately", num_channels)
 
         with tempfile.TemporaryDirectory() as tmpdir:
             for ch in range(num_channels):
@@ -145,7 +141,7 @@ def main() -> None:
                 sf.write(tmp_wav, channel_audio, sample_rate)
 
                 audio_dur_s = len(channel_audio) / sample_rate
-                print(f"\n[channel] processing channel {ch} ...")
+                logger.info("[channel %d] transcribing...", ch)
                 results, transcribe_s = _timed(
                     f"transcribe channel {ch}",
                     asr.transcribe,
@@ -160,24 +156,23 @@ def main() -> None:
                 output["channel"] = ch
 
                 if args.output:
-                    # Insert _channel{ch} before the last extension
                     out_base, out_ext = os.path.splitext(args.output)
                     output_path = f"{out_base}_channel{ch}{out_ext}"
                 else:
                     output_path = f"results/{basename}_channel{ch}-asr_result.json"
                 os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
 
-                _print_result(output)
+                logger.info("[result] language=%s", output["language"])
                 with open(output_path, "w", encoding="utf-8") as f:
                     json.dump(output, f, ensure_ascii=False, indent=2)
-                print(f"[output] JSON written: {output_path}")
+                logger.info("[output] saved: %s", output_path)
     else:
         output_path = args.output or f"results/{basename}-asr_result.json"
         os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
 
         audio_dur_s = _audio_duration(args.input)
         results, transcribe_s = _timed(
-            "transcribe",
+            f"transcribe {os.path.basename(args.input)}",
             asr.transcribe,
             audio=args.input,
             language=args.language,
@@ -188,10 +183,10 @@ def main() -> None:
         r = results[0]
         output = _build_output(args, args.input, r, audio_dur_s, model_load_s, transcribe_s)
 
-        _print_result(output)
+        logger.info("[result] language=%s", output["language"])
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(output, f, ensure_ascii=False, indent=2)
-        print(f"\n[output] JSON written: {output_path}")
+        logger.info("[output] saved: %s", output_path)
 
 
 if __name__ == "__main__":

@@ -12,7 +12,7 @@ Usage:
   --output/-o        TSV output path (default: ./results/batch_asr_results.tsv)
                      Summary file is derived automatically as <stem>_summary.json
   --language/-l      Force language, e.g. "Chinese", "English"; auto-detect if not set
-  --timestamps/-ts   Enable word-level timestamps
+  --word-timestamps/-wts  Enable word-level timestamps
   --device/-d        Inference device, e.g. "mps", "cuda:0", "cpu" (cuda:0)
   --dtype            Model dtype: bfloat16 / float16 / float32 (default: bfloat16)
   --batch-size/-bs   Inference batch size (default: 1)
@@ -198,7 +198,7 @@ def _write_summary(output_path: str, rows: List[TimedResult], args) -> None:
         "device":             args.device,
         "dtype":              args.dtype,
         "batch_size":         args.batch_size,
-        "timestamps":         args.timestamps,
+        "word_timestamps":    args.word_timestamps,
         "total_files":        len(rows),
         "total_audio_dur_s":  round(total_audio, 3),
         "total_transcribe_s": round(total_transcribe, 3),
@@ -250,7 +250,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--input", "-i", required=True, help="Audio directory")
     parser.add_argument("--output", "-o", default="./results/batch_asr_results.tsv", help="TSV output path (summary derived as <stem>_summary.json)")
     parser.add_argument("--language", "-l", default=None, help='Force language, e.g. "Chinese", "English"')
-    parser.add_argument("--timestamps", "-ts", action="store_true", help="Enable word-level timestamps")
+    parser.add_argument("--word-timestamps", "-wts", action="store_true", dest="word_timestamps", help="Enable word-level timestamps")
     parser.add_argument("--device", "-d", default="cuda:0", help='Inference device, e.g. "mps", "cuda:0", "cpu"')
     parser.add_argument("--dtype", default="bfloat16", choices=list(_DTYPE_MAP.keys()), help="Model dtype")
     parser.add_argument("--batch-size", "-bs", type=int, default=1, dest="batch_size", help="Inference batch size")
@@ -326,11 +326,11 @@ def main() -> None:
                 asr.transcribe,
                 audio=batch_tmp,
                 language=args.language,
-                return_time_stamps=args.timestamps,
+                return_time_stamps=args.word_timestamps,
                 audio_duration_s=sum(durs),
             )
             _print_asr_results(label, results)
-            align_s = elapsed if args.timestamps else None
+            align_s = elapsed if args.word_timestamps else None
             timed = _make_timed_results(results, batch_orig, durs, model_load_s, elapsed, align_s)
             for tr, ch in zip(timed, batch_chs):
                 tr.channel = ch

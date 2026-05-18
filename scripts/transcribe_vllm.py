@@ -11,7 +11,7 @@ Usage:
   --input/-i              Audio file path (required)
   --output/-o             JSON output path (default: results/<input_basename>.<model_name>.no_vad.<aligner_name>.json)
   --language/-l           Force language, e.g. "Chinese", "English"; auto-detect if not set
-  --timestamps/-ts        Enable word-level timestamps
+  --word-timestamps/-wts  Enable word-level timestamps
   --gpu-memory-util/-gmu  vLLM GPU memory utilization (default: 0.8)
   --aligner-device/-ad    ForcedAligner device (default: cuda:0)
   --max-new-tokens        Max new tokens for generation (default: 1024)
@@ -61,7 +61,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--input", "-i", required=True, help="Audio file path")
     parser.add_argument("--output", "-o", default=None, help="JSON output path (default: results/<input_basename>.<model_name>.no_vad.<aligner_name>.json)")
     parser.add_argument("--language", "-l", default=None, help='Force language, e.g. "Chinese", "English"')
-    parser.add_argument("--timestamps", "-ts", action="store_true", help="Enable word-level timestamps")
+    parser.add_argument("--word-timestamps", "-wts", action="store_true", dest="word_timestamps", help="Enable word-level timestamps")
     parser.add_argument("--gpu-memory-util", "-gmu", type=float, default=0.8, dest="gpu_memory_util", help="vLLM GPU memory utilization")
     parser.add_argument("--aligner-device", "-ad", default="cuda:0", dest="aligner_device", help="ForcedAligner device")
     parser.add_argument("--max-new-tokens", type=int, default=1024, dest="max_new_tokens", help="Max new tokens for generation")
@@ -102,7 +102,7 @@ def main() -> None:
     print(f"[timing] model load: {model_load_s:.3f}s")
 
     def _build_output(audio_path, r, audio_dur_s, transcribe_s):
-        align_s = transcribe_s if args.timestamps else None
+        align_s = transcribe_s if args.word_timestamps else None
         rtf = transcribe_s / audio_dur_s if audio_dur_s > 0 else None
         align_rtf = align_s / audio_dur_s if (align_s and audio_dur_s > 0) else None
         return {
@@ -155,7 +155,7 @@ def main() -> None:
                     asr.transcribe,
                     audio=tmp_wav,
                     language=args.language,
-                    return_time_stamps=args.timestamps,
+                    return_time_stamps=args.word_timestamps,
                     audio_duration_s=audio_dur_s,
                 )
 
@@ -184,7 +184,7 @@ def main() -> None:
             asr.transcribe,
             audio=args.input,
             language=args.language,
-            return_time_stamps=args.timestamps,
+            return_time_stamps=args.word_timestamps,
             audio_duration_s=audio_dur_s,
         )
 

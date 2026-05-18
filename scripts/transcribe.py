@@ -11,8 +11,8 @@ Usage:
   --input/-i            Audio file path (required)
   --output/-o           JSON output path (default: results/<input_basename>.<model_name>.no_vad.<aligner_name>.json)
   --language/-l         Force language, e.g. "Chinese", "English"; auto-detect if not set
-  --timestamps/-ts      Enable word-level timestamps
-  --silence-gap/-sg     Silence gap (s) to split word-level timestamps into segments (default: 0.5; 0 = no split)
+  --word-timestamps/-wts  Enable word-level timestamps
+  --silence-gap/-sg       Silence gap (s) to split word-level timestamps into segments (default: 0.5; 0 = no split)
   --device/-d           Inference device, e.g. "mps", "cuda:0", "cpu" (default: cuda:0)
   --dtype               Model dtype: bfloat16 / float16 / float32 (default: bfloat16)
   --seperate_channel/-sc  Split multi-channel audio and transcribe each channel separately
@@ -44,8 +44,8 @@ Output format (json):
     ]
   }
   segments: word-level timestamps aggregated into sentence segments by silence_gap.
-            Empty list when --timestamps is not set.
-  words: raw word-level timestamps; empty list when --timestamps is not set.
+            Empty list when --word-timestamps is not set.
+  words: raw word-level timestamps; empty list when --word-timestamps is not set.
 """
 
 import argparse
@@ -137,7 +137,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--input", "-i", required=True, help="Audio file path")
     parser.add_argument("--output", "-o", default=None, help="JSON output path (default: results/<input_basename>.<model_name>.no_vad.<aligner_name>.json)")
     parser.add_argument("--language", "-l", default=None, help='Force language, e.g. "Chinese", "English"')
-    parser.add_argument("--timestamps", "-ts", action="store_true", help="Enable word-level timestamps")
+    parser.add_argument("--word-timestamps", "-wts", action="store_true", dest="word_timestamps", help="Enable word-level timestamps")
     parser.add_argument("--silence-gap", "-sg", type=float, default=0.5, dest="silence_gap",
                         help="Silence gap (s) to split word-level timestamps into segments; 0 = no split")
     parser.add_argument("--device", "-d", default="cuda:0", help='Inference device, e.g. "mps", "cuda:0", "cpu"')
@@ -149,7 +149,7 @@ def parse_args() -> argparse.Namespace:
 
 def _build_output(args, audio_path, r, audio_dur_s, model_load_s, transcribe_s, model_name, aligner_name):
     """Build the output dict for a single transcription result."""
-    align_s = transcribe_s if args.timestamps else None
+    align_s = transcribe_s if args.word_timestamps else None
     rtf = transcribe_s / audio_dur_s if audio_dur_s > 0 else None
     align_rtf = align_s / audio_dur_s if (align_s and audio_dur_s > 0) else None
 
@@ -193,7 +193,7 @@ def main() -> None:
     dtype = _DTYPE_MAP[args.dtype]
     logger.info("[config] model=%s  aligner=%s", args.model_path, args.aligner_path)
     logger.info("[config] device=%s  dtype=%s", args.device, args.dtype)
-    logger.info("[config] timestamps=%s  silence_gap=%.2fs", args.timestamps, args.silence_gap)
+    logger.info("[config] word_timestamps=%s  silence_gap=%.2fs", args.word_timestamps, args.silence_gap)
     logger.info("[input]  %s", args.input)
 
     t0 = time.perf_counter()
@@ -227,7 +227,7 @@ def main() -> None:
                     asr.transcribe,
                     audio=tmp_wav,
                     language=args.language,
-                    return_time_stamps=args.timestamps,
+                    return_time_stamps=args.word_timestamps,
                     audio_duration_s=audio_dur_s,
                 )
 
@@ -257,7 +257,7 @@ def main() -> None:
             asr.transcribe,
             audio=args.input,
             language=args.language,
-            return_time_stamps=args.timestamps,
+            return_time_stamps=args.word_timestamps,
             audio_duration_s=audio_dur_s,
         )
 

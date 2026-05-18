@@ -12,7 +12,7 @@ Usage:
   --output/-o             TSV output path (default: ./results/batch_asr_results_vllm.tsv)
                           Summary file is derived automatically as <stem>_summary.json
   --language/-l           Force language, e.g. "Chinese", "English"; auto-detect if not set
-  --timestamps/-ts        Enable word-level timestamps
+  --word-timestamps/-wts  Enable word-level timestamps
   --gpu-memory-util/-gmu  vLLM GPU memory utilization (default: 0.8)
   --aligner-device/-ad    ForcedAligner device (default: cuda:0)
   --max-new-tokens        Max new tokens for generation (default: 1024)
@@ -197,7 +197,7 @@ def _write_summary(output_path: str, rows: List[TimedResult], args) -> None:
         "gpu_memory_util":    args.gpu_memory_util,
         "aligner_device":     args.aligner_device,
         "batch_size":         args.batch_size,
-        "timestamps":         args.timestamps,
+        "word_timestamps":    args.word_timestamps,
         "total_files":        len(rows),
         "total_audio_dur_s":  round(total_audio, 3),
         "total_transcribe_s": round(total_transcribe, 3),
@@ -249,7 +249,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--input", "-i", required=True, help="Audio directory")
     parser.add_argument("--output", "-o", default="./results/batch_asr_results_vllm.tsv", help="TSV output path (summary derived as <stem>_summary.json)")
     parser.add_argument("--language", "-l", default=None, help='Force language, e.g. "Chinese", "English"')
-    parser.add_argument("--timestamps", "-ts", action="store_true", help="Enable word-level timestamps")
+    parser.add_argument("--word-timestamps", "-wts", action="store_true", dest="word_timestamps", help="Enable word-level timestamps")
     parser.add_argument("--gpu-memory-util", "-gmu", type=float, default=0.8, dest="gpu_memory_util", help="vLLM GPU memory utilization")
     parser.add_argument("--aligner-device", "-ad", default="cuda:0", dest="aligner_device", help="ForcedAligner device")
     parser.add_argument("--max-new-tokens", type=int, default=1024, dest="max_new_tokens", help="Max new tokens for generation")
@@ -327,11 +327,11 @@ def main() -> None:
                 asr.transcribe,
                 audio=batch_tmp,
                 language=args.language,
-                return_time_stamps=args.timestamps,
+                return_time_stamps=args.word_timestamps,
                 audio_duration_s=sum(durs),
             )
             _print_asr_results(label, results)
-            align_s = elapsed if args.timestamps else None
+            align_s = elapsed if args.word_timestamps else None
             timed = _make_timed_results(results, batch_orig, durs, model_load_s, elapsed, align_s)
             for tr, ch in zip(timed, batch_chs):
                 tr.channel = ch

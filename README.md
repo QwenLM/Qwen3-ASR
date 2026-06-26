@@ -17,6 +17,10 @@ We release **Qwen3-ASR**, a family that includes two powerful all-in-one speech 
 
 
 ## News
+* 2026.6.26: 🤗🤗🤗 Native Transformers support is now available! It includes `torch.compile` support for faster inference. See the new model cards for example usage:
+  - [Qwen/Qwen3-ASR-1.7B-hf](https://huggingface.co/Qwen/Qwen3-ASR-1.7B-hf)
+  - [Qwen/Qwen3-ASR-0.6B-hf](https://huggingface.co/Qwen/Qwen3-ASR-0.6B-hf)
+  - [Qwen/Qwen3-ForcedAligner-0.6B-hf](https://huggingface.co/Qwen/Qwen3-ForcedAligner-0.6B-hf)
 * 2026.1.29: 🎉🎉🎉 We have released the [Qwen3-ASR](https://huggingface.co/collections/Qwen/qwen3-asr) series (0.6B/1.7B) and the Qwen3-ForcedAligner-0.6B model. Please check out our [blog](https://qwen.ai/blog?id=qwen3asr)!
 
 

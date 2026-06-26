@@ -14,23 +14,75 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import os
+import logging
+import soundfile as sf
 import unicodedata
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Union
-
+import regex
 import nagisa
+import numpy as np
 import torch
+import torchaudio
+
 from qwen_asr.core.transformers_backend import (
     Qwen3ASRConfig,
     Qwen3ASRForConditionalGeneration,
     Qwen3ASRProcessor,
 )
 from transformers import AutoConfig, AutoModel, AutoProcessor
+import torchaudio.compliance.kaldi as kaldi
+from qwen_asr.inference.cluster_backend import ClusterBackend
+import onnxruntime
 
+logger = logging.getLogger(__name__)
+
+
+def _resolve_campplus_model_path(campplus_model: str) -> str:
+    if not campplus_model:
+        return None
+    if os.path.isfile(campplus_model):
+        return campplus_model
+    if "/" in campplus_model and not os.path.exists(campplus_model):
+        parts = campplus_model.split("/")
+        if len(parts) >= 2:
+            repo_id = "/".join(parts[:-1])
+            filename = parts[-1]
+            try:
+                from modelscope.hub.file_download import model_file_download
+                cache_path = model_file_download(
+                    model_id=repo_id,
+                    file_path=filename,
+                )
+                logger.info(f"Downloaded campplus model from ModelScope: {campplus_model} -> {cache_path}")
+                return cache_path
+            except ImportError:
+                pass
+            except Exception as e:
+                logger.warning(f"Failed to download from ModelScope: {e}")
+            try:
+                from huggingface_hub import hf_hub_download
+                cache_path = hf_hub_download(
+                    repo_id=repo_id,
+                    filename=filename,
+                )
+                logger.info(f"Downloaded campplus model from HuggingFace: {campplus_model} -> {cache_path}")
+                return cache_path
+            except ImportError:
+                pass
+            except Exception as e:
+                logger.warning(f"Failed to download from HuggingFace: {e}")
+            raise FileNotFoundError(
+                f"Cannot find campplus model at '{campplus_model}'. "
+                f"Please install modelscope (pip install modelscope) or huggingface_hub (pip install huggingface_hub), "
+                f"or provide a valid local path."
+            )
+    return campplus_model
 from .utils import (
     AudioLike,
     ensure_list,
     normalize_audios,
+    SAMPLE_RATE,
 )
 
 
@@ -279,10 +331,13 @@ class ForcedAlignItem:
             Start time in seconds.
         end_time (float):
             End time in seconds.
+        speaker (Optional[int]):
+            Speaker label (cluster ID) for this segment.
     """
     text: str
     start_time: int
     end_time: int
+    speaker: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -322,10 +377,20 @@ class Qwen3ForcedAligner:
         model: Qwen3ASRForConditionalGeneration,
         processor: Qwen3ASRProcessor,
         aligner_processor: Qwen3ForceAlignProcessor,
+        campplus_model: str = None,
     ):
         self.model = model
         self.processor = processor
         self.aligner_processor = aligner_processor
+        # refer to https://github.com/FunAudioLLM/CosyVoice.git
+        if campplus_model:
+            resolved_path = _resolve_campplus_model_path(campplus_model)
+            self.campplus_model = resolved_path
+            self.cb_model = ClusterBackend().to('cpu')
+            option = onnxruntime.SessionOptions()
+            option.graph_optimization_level = onnxruntime.GraphOptimizationLevel.ORT_ENABLE_ALL
+            option.intra_op_num_threads = 1
+            self.campplus_session = onnxruntime.InferenceSession(resolved_path, sess_options=option, providers=["CPUExecutionProvider"])
 
         self.device = getattr(model, "device", None)
         if self.device is None:
@@ -368,6 +433,9 @@ class Qwen3ForcedAligner:
         AutoModel.register(Qwen3ASRConfig, Qwen3ASRForConditionalGeneration)
         AutoProcessor.register(Qwen3ASRConfig, Qwen3ASRProcessor)
 
+        # Extract campplus_model from kwargs before passing to AutoModel
+        campplus_model = kwargs.pop('campplus_model', None)
+
         model = AutoModel.from_pretrained(pretrained_model_name_or_path, **kwargs)
         if not isinstance(model, Qwen3ASRForConditionalGeneration):
             raise TypeError(
@@ -377,7 +445,7 @@ class Qwen3ForcedAligner:
         processor = AutoProcessor.from_pretrained(pretrained_model_name_or_path, fix_mistral_regex=True)
         aligner_processor = Qwen3ForceAlignProcessor()
 
-        return cls(model=model, processor=processor, aligner_processor=aligner_processor)
+        return cls(model=model, processor=processor, aligner_processor=aligner_processor, campplus_model=campplus_model)
 
     def _to_structured_items(self, timestamp_output: List[Dict[str, Any]]) -> ForcedAlignResult:
         items: List[ForcedAlignItem] = []
@@ -385,12 +453,26 @@ class Qwen3ForcedAligner:
             items.append(
                 ForcedAlignItem(
                     text=str(it.get("text", "")),
-                    start_time=float(it.get("start_time", 0)),
-                    end_time=float(it.get("end_time", 0)),
+                    start_time=int(it.get("start_time", 0)),
+                    end_time=int(it.get("end_time", 0)),
                 )
             )
         return ForcedAlignResult(items=items)
-
+    
+    @staticmethod
+    def load_wav(wav, target_sr, min_sr=16000):
+        if isinstance(wav, str):
+            speech, sample_rate = sf.read(wav)
+            speech = torch.from_numpy(speech).float().unsqueeze(0)
+        else:
+            speech = torch.from_numpy(wav).float().unsqueeze(0)
+            sample_rate = target_sr
+        
+        if sample_rate != target_sr:
+            assert sample_rate >= min_sr, 'wav sample rate {} must be greater than {}'.format(sample_rate, target_sr)
+            speech = torchaudio.transforms.Resample(orig_freq=sample_rate, new_freq=target_sr)(speech)
+        return speech
+    
     @torch.inference_mode()
     def align(
         self,
@@ -419,14 +501,14 @@ class Qwen3ForcedAligner:
         """
         texts = ensure_list(text)
         languages = ensure_list(language)
-        audios = normalize_audios(audio)
+        norm_audio = normalize_audios(audio)
 
-        if len(languages) == 1 and len(audios) > 1:
-            languages = languages * len(audios)
+        if len(languages) == 1 and len(norm_audio) > 1:
+            languages = languages * len(norm_audio)
 
-        if not (len(audios) == len(texts) == len(languages)):
+        if not (len(norm_audio) == len(texts) == len(languages)):
             raise ValueError(
-                f"Batch size mismatch: audio={len(audios)}, text={len(texts)}, language={len(languages)}"
+                f"Batch size mismatch: audio={len(norm_audio)}, text={len(texts)}, language={len(languages)}"
             )
 
         word_lists = []
@@ -438,7 +520,7 @@ class Qwen3ForcedAligner:
 
         inputs = self.processor(
             text=aligner_input_texts,
-            audio=audios,
+            audio=norm_audio,
             return_tensors="pt",
             padding=True,
         )
@@ -452,12 +534,149 @@ class Qwen3ForcedAligner:
             masked_output_id = output_id[input_id == self.timestamp_token_id]
             timestamp_ms = (masked_output_id * self.timestamp_segment_time).to("cpu").numpy()
             timestamp_output = self.aligner_processor.parse_timestamp(word_list, timestamp_ms)
-            for it in timestamp_output:
-                it['start_time'] = round(it['start_time'] / 1000.0, 3)
-                it['end_time'] = round(it['end_time'] / 1000.0, 3)
+            if not self.campplus_model:
+                for it in timestamp_output:
+                    it['start_time'] = round(it['start_time'] / 1000.0, 3)
+                    it['end_time'] = round(it['end_time'] / 1000.0, 3)
             results.append(self._to_structured_items(timestamp_output))
+        if not self.campplus_model:
+            return results
+        
+        audio_segments, text_segments = self._extract_audio_segments(texts, results, norm_audio, languages)
+        spk_labels = self._cluster_speakers(audio_segments)
+        return self._assign_speaker_labels(texts, results, text_segments, spk_labels)
 
-        return results
+    def _extract_audio_segments(
+        self,
+        texts: List[str],
+        results: List["ForcedAlignResult"],
+        norm_audio: List,
+        languages: List[str],
+    ) -> tuple:
+        audio_segments = []
+        text_segments = []
+        fbank_min_samples = int(25 / 1000 * SAMPLE_RATE)
+        
+        for text, align_result, audio_ndarray, language in zip(texts, results, norm_audio, languages):
+            segments_by_punc = [s for s in regex.split(r'[\p{P}]', text) if s]
+            char_offset = 0
+            max_idx = len(align_result) - 1
+            
+            for seg in segments_by_punc:
+                seg_len = len(seg)
+                start_time = align_result[min(char_offset, max_idx)].start_time
+                end_time = align_result[min(char_offset + seg_len - 1, max_idx)].end_time
+                
+                start_sample = int(start_time * (SAMPLE_RATE / 1000))
+                end_sample = int(end_time * (SAMPLE_RATE / 1000))
+                
+                if end_sample - start_sample >= fbank_min_samples:
+                    audio_segments.append(audio_ndarray[start_sample:end_sample])
+                    text_segments.append({
+                        'text': seg,
+                        'start': start_time,
+                        'end': end_time,
+                        'language': language,
+                        'audio_idx': len(audio_segments) - 1,
+                    })
+                
+                char_offset += seg_len
+        
+        return audio_segments, text_segments
+
+    def _extract_embedding(self, wav: np.ndarray) -> torch.Tensor:
+        speech = self.load_wav(wav, target_sr=SAMPLE_RATE)
+        feat = kaldi.fbank(
+            speech,
+            num_mel_bins=80,
+            dither=0,
+            sample_frequency=SAMPLE_RATE,
+        )
+        feat = feat - feat.mean(dim=0, keepdim=True)
+        embedding = self.campplus_session.run(
+            None,
+            {self.campplus_session.get_inputs()[0].name: feat.unsqueeze(dim=0).cpu().numpy()},
+        )[0].flatten()
+        return torch.from_numpy(embedding)
+
+    def _cluster_speakers(self, audio_segments: List) -> np.ndarray:
+        if not audio_segments:
+            return np.array([], dtype=int)
+        
+        embeddings = torch.stack([self._extract_embedding(wav) for wav in audio_segments])
+        return self.cb_model(embeddings)
+
+    def _assign_speaker_labels(
+        self,
+        texts: List[str],
+        results: List["ForcedAlignResult"],
+        text_segments: List[dict],
+        spk_labels: np.ndarray,
+    ) -> List["ForcedAlignResult"]:
+        segment_idx = 0
+        time_offset = 0
+        final_results = []
+        
+        for align_result in results:
+            new_items = []
+            for item in align_result:
+                speaker = self._find_speaker_for_item(
+                    item, text_segments, spk_labels, segment_idx, time_offset
+                )
+                new_items.append(ForcedAlignItem(
+                    text=item.text,
+                    start_time=item.start_time,
+                    end_time=item.end_time,
+                    speaker=speaker,
+                ))
+                segment_idx, _ = self._advance_segment(
+                    item, text_segments, segment_idx, time_offset
+                )
+            
+            if align_result:
+                time_offset += align_result[-1].end_time
+            final_results.append(ForcedAlignResult(items=new_items))
+        
+        return final_results
+
+    def _find_speaker_for_item(
+        self,
+        item: "ForcedAlignItem",
+        text_segments: List[dict],
+        spk_labels: np.ndarray,
+        segment_idx: int,
+        time_offset: int,
+    ) -> Optional[int]:
+        while segment_idx < len(text_segments):
+            seg = text_segments[segment_idx]
+            seg_start = seg['start'] - time_offset
+            seg_end = seg['end'] - time_offset
+            
+            if item.start_time >= seg_start and item.end_time <= seg_end:
+                audio_idx = seg['audio_idx']
+                return int(spk_labels[audio_idx]) if audio_idx < len(spk_labels) else None
+            elif item.end_time > seg_end:
+                segment_idx += 1
+            else:
+                break
+        return None
+
+    def _advance_segment(
+        self,
+        item: "ForcedAlignItem",
+        text_segments: List[dict],
+        segment_idx: int,
+        time_offset: int,
+    ) -> tuple:
+        while segment_idx < len(text_segments):
+            seg = text_segments[segment_idx]
+            seg_end = seg['end'] - time_offset
+            
+            if item.end_time > seg_end:
+                segment_idx += 1
+            else:
+                break
+        return segment_idx, time_offset
     
     def get_supported_languages(self) -> Optional[List[str]]:
         """

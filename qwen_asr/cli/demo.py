@@ -145,6 +145,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "--campplus-model",
+        default="FunAudioLLM/Fun-CosyVoice3-0.5B-2512/campplus.onnx",
+        help="Campplus model path for speaker diarization (optional).",
+    )
+
+    parser.add_argument(
         "--backend",
         default="transformers",
         choices=["transformers", "vllm"],
@@ -306,6 +312,7 @@ def _make_timestamp_html(audio_upload: Any, timestamps: Any) -> str:
         word = str(item.get("text", "") or "")
         start = item.get("start_time", None)
         end = item.get("end_time", None)
+        speaker = item.get("speaker", None)
         if start is None or end is None:
             continue
 
@@ -328,13 +335,17 @@ def _make_timestamp_html(audio_upload: Any, timestamps: Any) -> str:
         b64 = base64.b64encode(mem.read()).decode("utf-8")
         audio_src = f"data:audio/wav;base64,{b64}"
 
+        speaker_label = f"Speaker {speaker}" if speaker is not None else ""
+        speaker_style = f"border-left: 4px solid hsl({(speaker % 12) * 30}, 70%, 50%);" if speaker is not None else ""
+
         html_content += f"""
-        <div class="word-box">
+        <div class="word-box" style="{speaker_style}">
             <div class="word-text">{word}</div>
-            <div class="word-time">{start} - {end} s</div>
+            <div class="word-time">{start:.2f} - {end:.2f} s</div>
             <div class="word-audio">
                 <audio controls preload="none" src="{audio_src}"></audio>
             </div>
+            {f'<div style="font-size: 11px; color: #888; margin-top: 4px;">{speaker_label}</div>' if speaker_label else ''}
         </div>
         """
 
@@ -438,6 +449,7 @@ def build_demo(
                             text=getattr(t, "text", None),
                             start_time=getattr(t, "start_time", None),
                             end_time=getattr(t, "end_time", None),
+                            speaker=getattr(t, "speaker", None),
                         )
                         for t in (getattr(r, "time_stamps", None) or [])
                     ]
@@ -489,6 +501,10 @@ def main(argv=None) -> int:
 
     user_backend_kwargs = _parse_json_dict(args.backend_kwargs, name="--backend-kwargs")
     user_aligner_kwargs = _parse_json_dict(args.aligner_kwargs, name="--aligner-kwargs")
+
+    # Add campplus model path to aligner kwargs
+    if hasattr(args, "campplus_model") and args.campplus_model:
+        user_aligner_kwargs["campplus_model"] = args.campplus_model
 
     backend_kwargs = _merge_dicts(_default_backend_kwargs(backend), user_backend_kwargs)
     backend_kwargs = _coerce_special_types(backend_kwargs)

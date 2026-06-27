@@ -1,0 +1,9 @@
+{
+    "name": "qwen-asr-inference-server-client",
+    "version": "1.0.0",
+    "description": "Streaming client for Qwen-ASR example inference server",
+    "type": "module",
+    "dependencies": {
+        "ws": "^8.16.0"
+    }
+}

@@ -42,8 +42,7 @@ def _get_feat_extract_output_lengths(input_lengths):
     """
 
     input_lengths_leave = input_lengths % 100
-    feat_lengths = (input_lengths_leave - 1) // 2 + 1
-    output_lengths = ((feat_lengths - 1) // 2 + 1 - 1) // 2 + 1 + (input_lengths // 100) * 13
+    output_lengths = (input_lengths_leave + 7) // 8 + (input_lengths // 100) * 13
     return output_lengths
 
 

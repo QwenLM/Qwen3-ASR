@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "runtime": "pytorch_qwen_asr",
+  "model": "/mnt/c/Users/zhangzherui/Desktop/Tencent/hf-models/Qwen3-ASR-0.6B",
+  "audio_wav": "/mnt/c/Users/zhangzherui/Desktop/Tencent/ncnn-models/qwen3_asr_0.6b/asr_en_16k_pcm16.wav",
+  "language": "English",
+  "text": "Hmm. Oh yeah, yeah. He wasn't even that big when I started listening to him, but and his solo music didn't do overly well, but he did very well when he started writing for other people.",
+  "raw_text": "Hmm. Oh yeah, yeah. He wasn't even that big when I started listening to him, but and his solo music didn't do overly well, but he did very well when he started writing for other people.",
+  "time_stamps": null,
+  "total_time_ms": 7273.183107376099,
+  "audio_samples": 240820,
+  "audio_duration_sec": 15.05125,
+  "rtf": 0.483227845353449,
+  "sample_rate": 16000,
+  "original_channels": 1,
+  "channels_after_load": 1,
+  "load_time_sec": 6.250359535217285,
+  "cuda_memory_allocated_bytes": null,
+  "cuda_max_memory_allocated_bytes": null
+}

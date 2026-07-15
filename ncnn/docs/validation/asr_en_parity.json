@@ -1,0 +1,38 @@
+{
+  "date": "2026-07-15",
+  "fixture": {
+    "source_url": "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen3-ASR-Repo/asr_en.wav",
+    "source_sha256": "f9b4440ac8393e47c14a6240e9739dea09b645bb1592b8f2dd48feb9666cea7f",
+    "converted_sha256": "9c33540cbba2cf82c2b724f733b002466b87f83c06e20fbe3c4eed83c141edc9",
+    "sample_rate": 16000,
+    "channels": 1,
+    "samples": 240820
+  },
+  "ncnn": {
+    "model": "qwen3_asr_0.6b",
+    "language": "English",
+    "text": "Hmm. Oh yeah, yeah. He wasn't even that big when I started listening to him, but and his solo music didn't do overly well, but he did very well when he started writing for other people.",
+    "windows_elapsed_seconds": 8.314,
+    "wsl_elapsed_seconds": 21.41,
+    "wsl_max_rss_kb": 4762740,
+    "exit_code": 0
+  },
+  "pytorch": {
+    "model": "Qwen/Qwen3-ASR-0.6B",
+    "model_safetensors_sha256": "79d6cbd4c98c7bbffe9db2edac07f56cd6637d0d5944b27f6c2b8353840323ea",
+    "runtime": "torch 2.13.0+cpu, transformers 4.57.6, qwen-asr 0.0.6",
+    "device": "cpu",
+    "language": "English",
+    "text": "Hmm. Oh yeah, yeah. He wasn't even that big when I started listening to him, but and his solo music didn't do overly well, but he did very well when he started writing for other people.",
+    "load_time_seconds": 6.250359535217285,
+    "inference_time_seconds": 7.273183107376099,
+    "rtf": 0.483227845353449,
+    "raw_result": "pytorch/official_asr_en_pytorch.json",
+    "mel_summary": "pytorch/official_asr_en_pytorch_mel.json"
+  },
+  "comparison": {
+    "language_exact": true,
+    "raw_text_exact": true,
+    "normalized_text_exact": true
+  }
+}

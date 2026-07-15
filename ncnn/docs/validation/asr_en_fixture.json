@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "description": "Official Qwen3-ASR English sample used for the recorded ncnn/PyTorch parity run.",
+  "fixtures": [
+    {
+      "id": "official_asr_en",
+      "category": "official_english_sample",
+      "audio": "assets/asr_en_16k_pcm16.wav",
+      "expected_source": "Qwen3-ASR repository README",
+      "ncnn_result_json": "asr_en_parity.json",
+      "pytorch_result_json": null,
+      "pytorch_mel_summary_json": null,
+      "module_summary_json": null
+    }
+  ]
+}

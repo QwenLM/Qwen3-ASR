@@ -39,8 +39,8 @@ vllm = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/Qwen/Qwen3-ASR"
-Repository = "https://github.com/Qwen/Qwen3-ASR"
+Homepage = "https://github.com/QwenLM/Qwen3-ASR"
+Repository = "https://github.com/QwenLM/Qwen3-ASR"
 
 [project.scripts]
 qwen-asr-demo = "qwen_asr.cli.demo:main"

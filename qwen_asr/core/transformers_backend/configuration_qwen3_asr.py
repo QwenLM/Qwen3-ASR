@@ -336,7 +336,6 @@ class Qwen3ASRThinkerConfig(PretrainedConfig):
         initializer_range=0.02,
         **kwargs,
     ):
-        super().__init__(**kwargs)
         self.user_token_id = user_token_id
         self.audio_start_token_id = audio_start_token_id
         self.initializer_range = initializer_range
@@ -353,6 +352,11 @@ class Qwen3ASRThinkerConfig(PretrainedConfig):
             text_config = Qwen3ASRTextConfig()
         self.text_config = text_config
         self.audio_token_id = audio_token_id
+
+        # `super().__init__` must run after the sub-configs are assigned: it consumes
+        # `attn_implementation` via a setter that propagates the value to the configs
+        # listed in `sub_configs`, skipping any that are not yet set.
+        super().__init__(**kwargs)
 
 
 class Qwen3ASRConfig(PretrainedConfig):
@@ -400,12 +404,16 @@ class Qwen3ASRConfig(PretrainedConfig):
         support_languages=None,
         **kwargs,
     ):
-        super().__init__(**kwargs)
         if thinker_config is None:
             thinker_config = {}
 
         self.thinker_config = Qwen3ASRThinkerConfig(**thinker_config)
         self.support_languages = support_languages
+
+        # `super().__init__` must run after the sub-configs are assigned: it consumes
+        # `attn_implementation` via a setter that propagates the value to the configs
+        # listed in `sub_configs`, skipping any that are not yet set.
+        super().__init__(**kwargs)
 
     def get_text_config(self, decoder=False) -> "PretrainedConfig":
         """

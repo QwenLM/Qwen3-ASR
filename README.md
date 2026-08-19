@@ -1440,6 +1440,6 @@ If you find our paper and code useful in your research, please consider giving a
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=QwenLM/Qwen3-ASR&type=Date)](https://star-history.com/#QwenLM/Qwen3-ASR&Date)
+[![Star History Chart](https://star-history.dera.page/svg?repos=QwenLM/Qwen3-ASR&type=Date)](https://star-history.dera.page/#QwenLM/Qwen3-ASR&Date)
 
 <br>

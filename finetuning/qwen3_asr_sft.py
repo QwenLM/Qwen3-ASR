@@ -140,14 +140,15 @@ class DataCollatorForQwen3ASRFinetuning:
             truncation=False,
         )
 
-        prefix_lens = prefix_inputs["attention_mask"].sum(dim=1).tolist()
-        labels = full_inputs["input_ids"].clone()
-        for i, pl in enumerate(prefix_lens):
-            labels[i, :pl] = -100
+        prefix_lens = prefix_inputs["attention_mask"].sum(dim=1)
+        attention_mask = full_inputs["attention_mask"].bool()
+        # Count non-padding tokens so masking works with either padding side.
+        token_positions = attention_mask.long().cumsum(dim=1)
 
-        pad_id = self.processor.tokenizer.pad_token_id
-        if pad_id is not None:
-            labels[labels == pad_id] = -100
+        labels = full_inputs["input_ids"].clone()
+        labels.masked_fill_(
+            ~attention_mask | (token_positions <= prefix_lens.unsqueeze(1)), -100
+        )
 
         full_inputs["labels"] = labels
         return full_inputs

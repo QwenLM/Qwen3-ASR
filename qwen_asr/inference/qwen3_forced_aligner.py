@@ -170,9 +170,12 @@ class Qwen3ForceAlignProcessor():
         is_normal = [False] * n
         idx = levels[-1][0]
         is_normal[idx] = True
-        for level in reversed(levels[:-1]):
-            idx = next(i for i in level if data[i] <= data[idx])
-            is_normal[idx] = True
+        for depth in range(len(levels) - 2, -1, -1):
+            for predecessor in levels[depth]:
+                if data[predecessor] <= data[idx]:
+                    idx = predecessor
+                    is_normal[idx] = True
+                    break
         
         result = data.copy()
         i = 0

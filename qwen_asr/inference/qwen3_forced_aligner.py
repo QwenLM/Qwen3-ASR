@@ -15,6 +15,7 @@
 # limitations under the License.
 import os
 import unicodedata
+from bisect import bisect_right
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Union
 
@@ -148,28 +149,33 @@ class Qwen3ForceAlignProcessor():
         data = data.tolist()
         n = len(data)
 
-        dp = [1] * n
-        parent = [-1] * n
-        
-        for i in range(1, n):
-            for j in range(i):
-                if data[j] <= data[i] and dp[j] + 1 > dp[i]:
-                    dp[i] = dp[j] + 1
-                    parent[i] = j
-        
-        max_length = max(dp)
-        max_idx = dp.index(max_length)
-        
-        lis_indices = []
-        idx = max_idx
-        while idx != -1:
-            lis_indices.append(idx)
-            idx = parent[idx]
-        lis_indices.reverse()
+        if n == 0:
+            raise ValueError("max() arg is an empty sequence")
 
+        # Stable LNDS reconstruction from Hosi121's vLLM-Omni PR #8230:
+        # https://github.com/vllm-project/vllm-omni/pull/8230
+        tails = []
+        levels = []
+        for i, value in enumerate(data):
+            length = bisect_right(tails, value)
+            if length == len(tails):
+                tails.append(value)
+                levels.append([])
+            else:
+                tails[length] = value
+            levels[length].append(i)
+
+        # Preserve the first endpoint and first valid predecessor. Each level
+        # is ordered by index and contains a valid predecessor before idx.
         is_normal = [False] * n
-        for idx in lis_indices:
-            is_normal[idx] = True
+        idx = levels[-1][0]
+        is_normal[idx] = True
+        for depth in range(len(levels) - 2, -1, -1):
+            for predecessor in levels[depth]:
+                if data[predecessor] <= data[idx]:
+                    idx = predecessor
+                    is_normal[idx] = True
+                    break
         
         result = data.copy()
         i = 0

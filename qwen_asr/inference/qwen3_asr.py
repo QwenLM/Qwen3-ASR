@@ -223,6 +223,57 @@ class Qwen3ASRModel:
             max_new_tokens=max_new_tokens,
         )
 
+    def init_transformers_incremental_stream(
+        self,
+        context: str = "",
+        language: Optional[str] = None,
+        window_seconds: float = 30.0,
+        overlap_seconds: float = 2.0,
+        rollback_tokens: int = 8,
+        max_new_tokens: Optional[int] = None,
+    ) -> Any:
+        """Create an experimental bounded-context stream for the Transformers backend.
+
+        The existing ``init_streaming_state`` vLLM path is unchanged. The returned
+        stream accepts PCM with ``feed()`` and is finalized with ``finish()``.
+        It reuses completed encoder windows and decoder KV within each bounded
+        epoch; it depends on Qwen3-ASR model internals and is not a general
+        Transformers cache API.
+
+        Args:
+            context: Fixed text context passed to each epoch.
+            language: Optional forced language.
+            window_seconds: Maximum audio window retained by the stream.
+            overlap_seconds: Audio overlap retained when rolling to a new epoch.
+            rollback_tokens: Number of trailing generated tokens reconsidered on
+                each update.
+            max_new_tokens: Decode limit per update. Defaults to the value used
+                when this Qwen3ASRModel was initialized.
+
+        Raises:
+            ValueError: If this model uses the vLLM backend.
+        """
+        if self.backend != "transformers":
+            raise ValueError(
+                "Incremental cache streaming requires the Transformers backend; "
+                "load the model with Qwen3ASRModel.from_pretrained()."
+            )
+
+        from .transformers_streaming import TransformersIncrementalStreamingASR
+
+        decode_limit = self.max_new_tokens if max_new_tokens is None else max_new_tokens
+        if decode_limit is None:
+            decode_limit = 512
+        return TransformersIncrementalStreamingASR(
+            self,
+            context=context,
+            language=language,
+            window_seconds=window_seconds,
+            overlap_seconds=overlap_seconds,
+            rollback_tokens=rollback_tokens,
+            max_new_tokens=decode_limit,
+        )
+
     @classmethod
     def LLM(
         cls,

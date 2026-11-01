@@ -288,7 +288,22 @@ print(text)
 
 #### Streaming Inference
 
-Qwen3-ASR fully supports streaming inference. Currently, streaming inference is only available with the vLLM backend. Note that streaming inference does not support batch inference or returning timestamps. Please refer to the [example code](https://github.com/QwenLM/Qwen3-ASR/blob/main/examples/example_qwen3_asr_vllm_streaming.py) for details. You can also launch a streaming web demo through the [guide](#streaming-demo) to experience Qwen3-ASR’s streaming transcription capabilities. 
+The existing streaming API and web demo use the vLLM backend and remain unchanged. An opt-in, experimental bounded-context path is also available for the Transformers backend:
+
+```python
+asr = Qwen3ASRModel.from_pretrained(
+    "Qwen/Qwen3-ASR-0.6B", dtype=torch.bfloat16, device_map="cuda:0"
+)
+stream = asr.init_transformers_incremental_stream(
+    language="English", window_seconds=30.0, overlap_seconds=2.0
+)
+updates = stream.feed(pcm16k_chunk)  # 16 kHz mono float PCM; 2 s decode cadence
+final_update = stream.finish()
+```
+
+Each update contains the complete current transcript; the active suffix can be revised. This path bounds audio context to 30 seconds by default and reuses completed encoder windows and decoder KV within each epoch. Its 8-second encoder block follows the model's `n_window_infer=800` setting; no block-size sweep has been run. The active partial block is recomputed, and the implementation depends on Qwen3-ASR model internals rather than a general Transformers cache interface. It is an experimental single-stream path with no batching or timestamps. See the [example](examples/example_qwen3_asr_transformers_incremental_streaming.py) and [measured results and limitations](https://github.com/Lizhaohui2000/qwen3-asr-incremental-streaming/blob/main/reports/eval50.md).
+
+The vLLM example and streaming web demo remain available [here](https://github.com/QwenLM/Qwen3-ASR/blob/main/examples/example_qwen3_asr_vllm_streaming.py) and in the [streaming demo guide](#streaming-demo).
 
 #### ForcedAligner Usage
 

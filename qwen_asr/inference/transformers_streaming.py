@@ -533,7 +533,9 @@ class TransformersIncrementalStreamingASR:
             skip_special_tokens=True,
             clean_up_tokenization_spaces=False,
         )
-        self._language, self._epoch_text = parse_asr_output(decoded)
+        self._language, self._epoch_text = parse_asr_output(
+            decoded, user_language=self.force_language
+        )
         self._text = _merge_overlap(self._committed_text, self._epoch_text)
         self._sync()
         latency = time.perf_counter() - tick_start

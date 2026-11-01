@@ -259,6 +259,10 @@ class Qwen3ASRModel:
                 "load the model with Qwen3ASRModel.from_pretrained()."
             )
 
+        if language is not None and str(language).strip():
+            language = normalize_language_name(str(language))
+            validate_language(language)
+
         from .transformers_streaming import TransformersIncrementalStreamingASR
 
         decode_limit = self.max_new_tokens if max_new_tokens is None else max_new_tokens

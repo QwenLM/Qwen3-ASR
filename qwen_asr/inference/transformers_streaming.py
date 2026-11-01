@@ -211,7 +211,7 @@ class TransformersIncrementalStreamingASR:
         self.asr = asr
         self.model = asr.model.eval()
         self.thinker = self.model.thinker
-        self.language = language
+        self.force_language = language
         self.context = context or ""
         self.window_seconds = float(window_seconds)
         self.update_seconds = UPDATE_SECONDS
@@ -229,7 +229,9 @@ class TransformersIncrementalStreamingASR:
         self.dtype = self.model.dtype
         self.audio_token_id = asr.processor.tokenizer.convert_tokens_to_ids(asr.processor.audio_token)
         self.block_frames = int(self.thinker.audio_tower.config.n_window_infer)
-        self.prompt = asr._build_text_prompt(context=self.context, force_language=self.language)
+        self.prompt = asr._build_text_prompt(
+            context=self.context, force_language=self.force_language
+        )
 
         self._ring = np.empty((0,), dtype=np.float32)
         self._pending = np.empty((0,), dtype=np.float32)

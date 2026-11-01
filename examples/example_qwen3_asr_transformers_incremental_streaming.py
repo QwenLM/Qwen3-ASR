@@ -15,6 +15,7 @@
 """Experimental bounded-context streaming with Transformers encoder/KV reuse."""
 
 import io
+import os
 import urllib.request
 
 import numpy as np
@@ -24,7 +25,7 @@ import torch
 from qwen_asr import Qwen3ASRModel
 
 
-ASR_MODEL_PATH = "Qwen/Qwen3-ASR-0.6B"
+ASR_MODEL_PATH = os.environ.get("QWEN_ASR_MODEL_PATH", "Qwen/Qwen3-ASR-0.6B")
 URL_EN = "https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen3-ASR-Repo/asr_en.wav"
 SAMPLE_RATE = 16_000
 INPUT_CHUNK_SECONDS = 0.5

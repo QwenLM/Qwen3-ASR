@@ -102,7 +102,9 @@ huggingface-cli download Qwen/Qwen3-ForcedAligner-0.6B --local-dir ./Qwen3-Force
 
 ### Environment Setup
 
-The easiest way to use Qwen3-ASR is to install the `qwen-asr` Python package from PyPI. This will pull in the required runtime dependencies and allow you to load any released Qwen3-ASR model. If you’d like to simplify environment setup further, you can also use our official [Docker image](#docker). The `qwen-asr` package provides two backends: the transformers backend and the vLLM backend. For usage instructions for different backends, please refer to [Python Package Usage](#python-package-usage). We recommend using a **fresh, isolated environment** to avoid dependency conflicts with existing packages. You can create a clean Python 3.12 environment like this:
+Install the `qwen-asr` Python package from PyPI to use the checkpoints shown in [Python Package Usage](#python-package-usage). If you’d like to simplify environment setup further, you can also use our official [Docker image](#docker). The `qwen-asr` package provides two backends: the transformers backend and the vLLM backend. We recommend using a **fresh, isolated environment** to avoid dependency conflicts with existing packages. You can create a clean Python 3.12 environment like this:
+
+For the native Transformers checkpoints ([0.6B-hf](https://huggingface.co/Qwen/Qwen3-ASR-0.6B-hf) and [1.7B-hf](https://huggingface.co/Qwen/Qwen3-ASR-1.7B-hf)), follow their model cards in a separate environment. The `qwen-asr` package pins a Transformers version that predates native support for these checkpoints.
 
 ```bash
 conda create -n qwen3-asr python=3.12 -y
